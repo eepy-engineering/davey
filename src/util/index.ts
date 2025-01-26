@@ -284,7 +284,7 @@ async function createZeroKey() {
   if (!zeroKey) {
       const key = new Uint8Array(64);
       zeroKey = await subtle.importKey(
-        "raw", new Uint8Array(64), {name: "HMAC", hash: 'SHA-256', length: key.byteLength * 8},
+        "raw", key, {name: "HMAC", hash: 'SHA-256', length: key.byteLength * 8},
         false, ["sign", "verify"],
       );
   }

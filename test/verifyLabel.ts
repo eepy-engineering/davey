@@ -2,7 +2,8 @@ import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 chai.use(chaiAsPromised);
 import 'mocha';
-import { verifyWithLabel } from '../src/util';
+import { CipherSuiteInterface } from '../src/util/ciphersuite';
+import { CipherSuite } from '../src/util/constants';
 const expect = chai.expect;
 
 describe('verifyWithLabel', () => {
@@ -37,7 +38,8 @@ describe('verifyWithLabel', () => {
       0xD6, 
     ]);
   
-    expect(verifyWithLabel(key, 'LeafNodeTBS', signature, data)).to.eventually.equal(true);
+    const ciphersuite = new CipherSuiteInterface(CipherSuite.MLS_128_DHKEMP256_AES128GCM_SHA256_P256);
+    expect(ciphersuite.verifyWithLabel(key, 'LeafNodeTBS', signature, data)).to.eventually.equal(true);
   });
 
   it('should verify keypackages properly', () => {
@@ -80,6 +82,7 @@ describe('verifyWithLabel', () => {
       0xD6, 
     ]);
   
-    expect(verifyWithLabel(key, 'KeyPackageTBS', signature, data)).to.eventually.equal(true);
+    const ciphersuite = new CipherSuiteInterface(CipherSuite.MLS_128_DHKEMP256_AES128GCM_SHA256_P256);
+    expect(ciphersuite.verifyWithLabel(key, 'KeyPackageTBS', signature, data)).to.eventually.equal(true);
   });
 });

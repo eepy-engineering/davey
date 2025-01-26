@@ -7,6 +7,13 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@hpke/core':
+        specifier: ^1.7.1
+        version: 1.7.1
+      '@noble/curves':
+        specifier: ^1.8.1
+        version: 1.8.1
     devDependencies:
       '@types/chai':
         specifier: ^5.0.0
@@ -185,6 +192,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@hpke/common@1.7.1':
+    resolution: {integrity: sha512-/PBcoBsgr/bWBwJfAF1vKFBRa8tFu1g7mSuCDgpjBlRABXvLbWSF07Rb4rI5PlO8Ng16pjgvI7fgHzaLyZ9lmw==}
+    engines: {node: '>=16.0.0'}
+
+  '@hpke/core@1.7.1':
+    resolution: {integrity: sha512-1cup0EARfFY7ZIIcPXBBs+LmEi7s4xghcQWVjtVUgdVzp5ZDrNpfn6iH7UbV26ZvTcinMU+NFaCfUk0G1rvfjA==}
+    engines: {node: '>=16.0.0'}
+
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
     engines: {node: '>=12'}
@@ -206,6 +221,14 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.25':
     resolution: {integrity: sha512-vNk6aEwybGtawWmy/PzwnGDOjCkLWSD2wqvjGGAgOAwCGWySYXfYoxt00IJkTF+8Lb57DwOb3Aa0o9CApepiYQ==}
+
+  '@noble/curves@1.8.1':
+    resolution: {integrity: sha512-warwspo+UYUPep0Q+vtdVB4Ugn8GGQj8iyB3gnRWsztmUHTI3S1nhdiWNsPUGL0vud7JlRRk1XEu7Lq1KGTnMQ==}
+    engines: {node: ^14.21.3 || >=16}
+
+  '@noble/hashes@1.7.1':
+    resolution: {integrity: sha512-B8XBPsn4vT/KJAGqDzbwztd+6Yte3P4V7iafm24bxgDe/mlRuK6xmWPuCNrKt2vDafZ8MfJLlchDG/vYafQEjQ==}
+    engines: {node: ^14.21.3 || >=16}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -987,6 +1010,12 @@ snapshots:
   '@esbuild/win32-x64@0.23.1':
     optional: true
 
+  '@hpke/common@1.7.1': {}
+
+  '@hpke/core@1.7.1':
+    dependencies:
+      '@hpke/common': 1.7.1
+
   '@isaacs/cliui@8.0.2':
     dependencies:
       string-width: 5.1.2
@@ -1012,6 +1041,12 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.0
+
+  '@noble/curves@1.8.1':
+    dependencies:
+      '@noble/hashes': 1.7.1
+
+  '@noble/hashes@1.7.1': {}
 
   '@pkgjs/parseargs@0.11.0':
     optional: true

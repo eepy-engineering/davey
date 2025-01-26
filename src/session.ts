@@ -2,12 +2,13 @@ import { CipherSuite, ProposalsOperationType } from './util/constants';
 import { serializeKeyPackage, serializeLeafNode } from './util/structs';
 import { DataCursor, generateKey, KeyPair, readVarint, serializePublicKey } from './util';
 import { MLSState } from './state';
+import { CipherSuiteInterface } from './util/ciphersuite';
 
 // NOTE: group id === channel id
 
 export class DAVESession {
   protocolVersion = 0;
-  ciphersuite = CipherSuite.MLS_128_DHKEMP256_AES128GCM_SHA256_P256;
+  ciphersuite = new CipherSuiteInterface(CipherSuite.MLS_128_DHKEMP256_AES128GCM_SHA256_P256);
 
   userId = '';
   credentialIdentity = Buffer.alloc(8);
@@ -32,7 +33,7 @@ export class DAVESession {
     this.groupId.writeBigUInt64BE(BigInt(groupId));
     this.credentialIdentity.writeBigUInt64BE(BigInt(userId));
 
-    this.#createLeafNode(transientKey);
+    await this.#createLeafNode(transientKey);
     this.#createPendingGroup();
   }
 
@@ -188,7 +189,7 @@ export class DAVESession {
   }
 
   // TODO #createPendingGroup
-  async #createPendingGroup() {
+  #createPendingGroup() {
     if (this.#groupIdEmpty()) return console.warn('Cannot create MLS group without a group ID');
     if (!this.externalSender) return console.warn('Cannot create MLS group without ExternalSender');
     if (!this.leafnode) return console.warn('Cannot create MLS group without self leaf node');

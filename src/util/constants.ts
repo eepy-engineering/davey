@@ -93,3 +93,24 @@ export enum NodeType { // u8
   LEAF = 1,
   PARENT = 2,
 };
+
+export const LABEL_HEADER = 'MLS 1.0 ';
+
+export enum MLSReferenceLabels {
+  KEY_PACKAGE_REFERENCE = LABEL_HEADER + 'KeyPackage Reference',
+  PROPOSAL_REFERENCE = LABEL_HEADER + 'Proposal Reference',
+}
+
+export enum MLSLabels {
+  // MLS Signature Labels
+  // https://www.rfc-editor.org/rfc/rfc9420.html#section-17.6
+  FRAMED_CONTENT_TBS = 'FramedContentTBS',
+  LEAF_NODE_TBS = 'LeafNodeTBS',
+  KEY_PACKAGE_TBS = 'KeyPackageTBS',
+  GROUP_INFO_TBS = 'GroupInfoTBS',
+
+  // MLS Public Key Encryption Labels
+  // https://www.rfc-editor.org/rfc/rfc9420.html#section-17.7
+  UPDATE_PATH_NODE = 'UpdatePathNode',
+  WELCOME = 'Welcome',
+}

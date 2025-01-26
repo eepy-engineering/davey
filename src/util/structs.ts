@@ -1,10 +1,11 @@
-import { CredentialType, ProtocolVersion, CipherSuite, LeafNodeSource, WireFormat, SenderType, ContentType, ProposalOrRefType } from './constants';
+import { CredentialType, ProtocolVersion, LeafNodeSource, WireFormat, SenderType, ContentType, ProposalOrRefType } from './constants';
 import { serializeResolvers } from './serialize';
 import { Key, signWithLabel } from '.';
+import { CipherSuiteInterface } from './ciphersuite';
 
 /** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-7.2-2 */
 export async function serializeLeafNode(
-  ciphersuite: CipherSuite,
+  ciphersuite: CipherSuiteInterface,
   encryptionKey: Uint8Array,
   signatureKey: Uint8Array,
   userId: string,
@@ -20,7 +21,7 @@ export async function serializeLeafNode(
 
     // capabilities
     ['v', [['u16', ProtocolVersion.MLS10]]],  // versions
-    ['v', [['u16', ciphersuite]]],            // cipher_suites
+    ['v', [['u16', ciphersuite.type]]],            // cipher_suites
     ['v', ], // extensions
     ['v', ], // proposals
     ['v', [['u16', CredentialType.BASIC]]], // credentials
@@ -35,27 +36,27 @@ export async function serializeLeafNode(
     // signature (appended later)
   ]);
 
-  const signature = await signWithLabel(signingPrivateKey, 'LeafNodeTBS', content);
+  const signature = await ciphersuite.signWithLabel(signingPrivateKey, 'LeafNodeTBS', content);
   return Buffer.concat([content, serializeResolvers([['v', signature]])]);
 }
 
 /** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-10-6 */
 export async function serializeKeyPackage(
-  ciphersuite: CipherSuite,
+  ciphersuite: CipherSuiteInterface,
   initKey: Uint8Array,
   leafnode: Buffer,
   signingPrivateKey: Key
 ) {
   const content = serializeResolvers([
     ['u16', ProtocolVersion.MLS10], // protocol_version
-    ['u16', ciphersuite],           // cipher_suite
+    ['u16', ciphersuite.type],           // cipher_suite
     ['v', initKey],                 // init_key
     leafnode,                       // leafnode
     ['v'],                          // extensions
     // signature (appended later)
   ]);
 
-  const signature = await signWithLabel(signingPrivateKey, 'KeyPackageTBS', content);
+  const signature = await ciphersuite.signWithLabel(signingPrivateKey, 'KeyPackageTBS', content);
   return Buffer.concat([content, serializeResolvers([['v', signature]])]);
 }
 
@@ -77,10 +78,10 @@ export async function serializeMLSCommitMessage(groupId: Uint8Array, epoch: bigi
       // this turns all proposalRefs into ProposalOrRefs in the RFC
       proposalRefs.map((ref) => ([
         ['u8', ProposalOrRefType.REFERENCE] as ['u8', number],
-        ['v', ref]  as ['v', Uint8Array]
+        ['v', ref] as ['v', Uint8Array]
       ])).reduce((p, v) => [...p, ...v])
     ],
-    ['v'], // path (technically an optional, but an empty vector works the same)
+    ['o'], // path
   ]);
 
   // https://www.rfc-editor.org/rfc/rfc9420.html#section-6.1-2
@@ -96,6 +97,7 @@ export async function serializeMLSCommitMessage(groupId: Uint8Array, epoch: bigi
     ['u16', WireFormat.MLS_PUBLIC_MESSAGE],  // wire_format
     
     // public_message
-    // content
+    framedContent,
+    // auth
   ]);
 }
