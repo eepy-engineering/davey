@@ -15,7 +15,6 @@ Note that:
 - This may all be in vain! (if someone smarter than me makes a native thing instead)
 
 ## TODO
-- [x] Remove noble/curves dependency in favor of webcrypto
 - [x] Create session
   - [x] Create key package
   - [x] Store external sender
@@ -33,3 +32,5 @@ Note that:
 - [discord/libdave](https://github.com/discord/libdave)
 - [Discord Dev Docs - Voice - E2EE](https://discord.com/developers/docs/topics/voice-connections#endtoend-encryption-dave-protocol)
 - [matrix-org/mls-ts](https://gitlab.matrix.org/matrix-org/mls-ts)
+- [`@noble/curves/secp256k1`](https://github.com/paulmillr/noble-curves#ecdsa-signatures-over-secp256k1-and-others) (may or may not be used)
+- [`@hpke/core`](https://github.com/dajiaji/hpke-js)
