@@ -25,8 +25,8 @@ export class MLSState {
         extensions: [
           {
             extension_type: ExtensionType.EXTERNAL_SENDERS,
-            extension_data: undefined
-          } as any
+            extension_data: new Uint8Array(session.externalSender!.buffer)
+          }
         ],
         tree_hash: ratchetTree.hash(ratchetTree.root, session.ciphersuite)
     } satisfies GroupContext;

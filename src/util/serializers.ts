@@ -70,7 +70,7 @@ export function serializeExtension(extension: Extension<ExtensionType>) {
     // extension_type
     ['u16', extension.extension_type],
     // extension_data
-    ['v', extension.extension_type === ExtensionType.REQUIRED_CAPABILITIES ? [
+    ['v', extension.extension_data instanceof Uint8Array || !extension.extension_data ? extension.extension_data : extension.extension_type === ExtensionType.REQUIRED_CAPABILITIES ? [
       ['v', extension.extension_data.credential_types.map((v) => ['u16', v])],
       ['v', extension.extension_data.proposal_types.map((v) => ['u16', v])],
       ['v', extension.extension_data.credential_types.map((v) => ['u16', v])]

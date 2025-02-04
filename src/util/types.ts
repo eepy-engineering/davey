@@ -29,7 +29,7 @@ export interface Lifetime {
   not_after: bigint;
 }
 
-export type ExtensionData<T extends ExtensionType> = T extends ExtensionType.REQUIRED_CAPABILITIES ? RequiredCapabilities : never;
+export type ExtensionData<T extends ExtensionType> = T extends ExtensionType.REQUIRED_CAPABILITIES ? RequiredCapabilities : (Uint8Array | undefined);
 
 export interface Extension<T extends ExtensionType> {
   extension_type: T;
