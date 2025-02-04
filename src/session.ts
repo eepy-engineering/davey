@@ -1,8 +1,10 @@
-import { CipherSuite, ProposalsOperationType } from './util/constants';
-import { serializeKeyPackage, serializeLeafNode } from './util/structs';
-import { DataCursor, generateKey, KeyPair, readVarint, serializePublicKey } from './util';
+import { CipherSuite, CredentialType, LeafNodeSource, ProposalsOperationType, ProtocolVersion } from './util/constants';
+import { DataCursor, generateKey, readVarint, serializePublicKey } from './util';
 import { MLSState } from './state';
-import { CipherSuiteInterface } from './util/ciphersuite';
+import { CipherSuiteInterface, KeyPair } from './util/ciphersuite';
+import { KeyPackage, LeafNodeKeyPackage } from './util/types';
+import { signKeyPackage, signLeafNode } from './util/signing';
+import { serializeKeyPackage } from './util/serializers';
 
 // NOTE: group id === channel id
 
@@ -15,13 +17,11 @@ export class DAVESession {
   groupId = Buffer.alloc(8);
 
   signingKeys?: KeyPair | undefined;
-  signingPub?: Uint8Array | undefined;
   hpkeKeys?: KeyPair | undefined;
-  hpkePub?: Uint8Array | undefined;
 
-  leafnode?: Buffer | undefined;
+  leafnode?: LeafNodeKeyPackage | undefined;
   joinInitKeys?: KeyPair | undefined;
-  joinKeyPackage?: Buffer | undefined;
+  joinKeyPackage?: KeyPackage | undefined;
   externalSender?: Buffer | undefined;
 
   pendingGroupState?: MLSState | undefined;
@@ -34,7 +34,7 @@ export class DAVESession {
     this.credentialIdentity.writeBigUInt64BE(BigInt(userId));
 
     await this.#createLeafNode(transientKey);
-    this.#createPendingGroup();
+    await this.#createPendingGroup();
   }
 
   reset() {
@@ -59,7 +59,6 @@ export class DAVESession {
     this.joinKeyPackage = undefined;
 
     this.hpkeKeys = undefined;
-    this.hpkePub = undefined;
     this.leafnode = undefined;
 
     // stateWithProposals_.reset();
@@ -88,7 +87,7 @@ export class DAVESession {
     // so every time the client asks for a key package we create a new one
     await this.#resetJoinKeyPackage();
 
-    return this.joinKeyPackage!;
+    return serializeKeyPackage(this.joinKeyPackage!);
   }
 
   async processProposals(proposals: Buffer) {
@@ -176,20 +175,41 @@ export class DAVESession {
   }
 
   async #createLeafNode(transientKey?: KeyPair) {
-    if (!transientKey) transientKey = await generateKey();
+    if (!transientKey) transientKey = this.ciphersuite.generateSigningKeyPair();
 
     this.signingKeys = transientKey;
-    this.hpkeKeys = await generateKey();
+    this.hpkeKeys = this.ciphersuite.generateKeyPair();
 
-    this.signingPub = await serializePublicKey(this.signingKeys.publicKey);
-    this.hpkePub = await serializePublicKey(this.hpkeKeys.publicKey);
-    this.leafnode = await serializeLeafNode(this.ciphersuite, this.hpkePub, this.signingPub, this.userId, this.signingKeys.privateKey);
+    this.leafnode = {
+      encryption_key: this.hpkeKeys.publicKey,
+      signature_key: this.signingKeys.publicKey,
+      credential: {
+        credential_type: CredentialType.BASIC,
+        identity: this.credentialIdentity
+      },
+      capabilities: {
+        versions: [ProtocolVersion.MLS10],
+        cipher_suites: [this.ciphersuite.type],
+        extensions: [],
+        proposals: [],
+        credentials: [CredentialType.BASIC]
+      },
+      leaf_node_source: LeafNodeSource.KEY_PACKAGE,
+      lifetime: {
+        not_before: 0n,
+        not_after: 0xFFFFFFFFFFFFFFFFn
+      },
+      extensions: [],
+      private_key: this.signingKeys.privateKey
+    }
+    this.leafnode.signature = await signLeafNode(this.leafnode, this.ciphersuite);
+    // this.leafnode = await serializeLeafNode(this.ciphersuite, this.hpkePub, this.signingPub, this.userId, this.signingKeys.privateKey);
 
     console.log('Created MLS leaf node');
   }
 
   // TODO #createPendingGroup
-  #createPendingGroup() {
+  async #createPendingGroup() {
     if (this.#groupIdEmpty()) return console.warn('Cannot create MLS group without a group ID');
     if (!this.externalSender) return console.warn('Cannot create MLS group without ExternalSender');
     if (!this.leafnode) return console.warn('Cannot create MLS group without self leaf node');
@@ -200,7 +220,7 @@ export class DAVESession {
 
     // auto ciphersuite = CiphersuiteForProtocolVersion(protocolVersion_);
 
-    this.pendingGroupState = new MLSState(this);
+    this.pendingGroupState = await MLSState.create(this);
 
     // pendingGroupState_ = std::make_unique<::mlspp::State>(
     //   groupId_,
@@ -231,10 +251,17 @@ export class DAVESession {
     if (!this.leafnode) return console.warn('Cannot initialize join key package without a leaf node');
     // auto ciphersuite = CiphersuiteForProtocolVersion(protocolVersion_);
 
-    this.joinInitKeys = await generateKey();
-    const initPub = await serializePublicKey(this.joinInitKeys.publicKey);
+    this.joinInitKeys = this.ciphersuite.generateSigningKeyPair();
 
-    this.joinKeyPackage = await serializeKeyPackage(this.ciphersuite, initPub, this.leafnode, this.signingKeys!.privateKey);
+    // this.joinKeyPackage = await serializeKeyPackage(this.ciphersuite, initPub, this.leafnode, this.signingKeys!.privateKey);
+    this.joinKeyPackage = {
+      version: ProtocolVersion.MLS10,
+      cipher_suite: this.ciphersuite.type,
+      init_key: this.joinInitKeys.publicKey,
+      leaf_node: this.leafnode,
+      extensions: []
+    }
+    this.joinKeyPackage!.signature = await signKeyPackage(this.joinKeyPackage!, this.ciphersuite);
 
     console.log('Generated key package');
   }

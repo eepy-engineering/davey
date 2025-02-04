@@ -7,7 +7,7 @@ const TYPE_LENGTH_MAP = {
 
 type UIntResolver = [type: 'u8' | 'u16' | 'u32', value: number];
 type BigUIntResolver = [type: 'u64', value: bigint];
-type VectorResolver = [type: 'v', value?: BufferOrResolvables];
+type VectorResolver = [type: 'v', value?: BufferOrResolvables | undefined];
 type OptionalResolver = [type: 'o', value?: BufferOrResolvables | undefined];
 type AnyResolver = UIntResolver | BigUIntResolver | VectorResolver | OptionalResolver;
 export type Resolvable = AnyResolver | Uint8Array | Buffer;

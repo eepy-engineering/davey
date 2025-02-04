@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
-import { serializeResolvers } from './serialize';
+import { serializeResolvers } from './resolver';
+import { DAVESession } from '../session';
+import { MLSState } from '../state';
+import { ContentType, SenderType } from './constants';
 
 const EMPTY_BUFFER = new Uint8Array(0);
 const subtle = crypto.webcrypto.subtle;
@@ -164,6 +167,81 @@ export function rawToPKCS8(rawKey: Uint8Array) {
   return formattedKey;
 }
 
+// /** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-8.2 */
+// export async function calculateConfirmedTranscriptHash(
+//   session: DAVESession,
+//   state: MLSState,
+//   proposals: Uint8Array[],
+//   interimTranscriptHash: Uint8Array,
+//   updatePath?: Uint8Array
+// ): Promise<Uint8Array> {
+//   // WireFormat.MLS_PUBLIC_MESSAGE
+
+//   // https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4-3
+//   const commit = serializeResolvers([
+//     ['v', proposals],   // proposals
+//     ['o', updatePath]   // path
+//   ]);
+
+//   // https://www.rfc-editor.org/rfc/rfc9420.html#section-6
+//   const framedContent = serializeResolvers([
+//     session.groupId,              // group_id
+//     ['u64', state.epoch],         // epoch
+//     ['u8', SenderType.MEMBER],    // sender/sender_type
+//     ['u8', 0],                    // sender/leaf_index
+//     ['v'],                        // authenticated_data
+
+//     ['u8', ContentType.COMMIT],   // content_type
+//     commit                        // commit
+//   ]);
+
+//   const signature = await signWithLabel(session.signingPub!, 'FramedContentTBS', framedContent);
+
+//   // struct {
+//   //     opaque group_id<V>;
+//   //     uint64 epoch;
+//   //     Sender sender;
+//   //     opaque authenticated_data<V>;
+
+//   //     ContentType content_type;
+//   //     select (FramedContent.content_type) {
+//   //         case application:
+//   //           opaque application_data<V>;
+//   //         case proposal:
+//   //           Proposal proposal;
+//   //         case commit:
+//   //           Commit commit;
+//   //     };
+//   // } FramedContent;
+
+//   // struct {
+//   //     WireFormat wire_format;
+//   //     FramedContent content; /* with content_type == commit */
+//   //     opaque signature<V>;
+//   // } ConfirmedTranscriptHashInput;
+
+//   // struct {
+//   //     MAC confirmation_tag;
+//   // } InterimTranscriptHashInput;
+//   // confirmed_transcript_hash_[0] = ""; /* zero-length octet string */
+//   // interim_transcript_hash_[0] = ""; /* zero-length octet string */
+
+//   // confirmed_transcript_hash_[epoch] =
+//   //     Hash(interim_transcript_hash_[epoch - 1] ||
+//   //         ConfirmedTranscriptHashInput_[epoch]);
+
+//   // interim_transcript_hash_[epoch] =
+//   //     Hash(confirmed_transcript_hash_[epoch] ||
+//   //         InterimTranscriptHashInput_[epoch]);
+
+
+//   // const mlsPlaintextCommitContent = tlspl.encode([plaintext.commitContentEncoder]);
+//   // const confirmedTranscriptHash = await cipherSuite.hash.hash(
+//   //     concatUint8Array([interimTranscriptHash, mlsPlaintextCommitContent]),
+//   // );
+//   // return confirmedTranscriptHash;
+// }
+
 export type HashAlgorithm = 'sha256' | 'sha512';
 
 export function hash(algorithm: HashAlgorithm, data: crypto.BinaryLike) {
@@ -309,4 +387,10 @@ export async function verifyMac(key: Uint8Array, data: Uint8Array, mac: Uint8Arr
       false, ["verify"],
     );
   return await subtle.verify('HMAC', cryptoKey, mac, data);
+}
+
+export function toUint32(n: number) {
+  const buffer = Buffer.alloc(4);
+  buffer.writeUInt32BE(n, 0);
+  return new Uint8Array(buffer.buffer);
 }

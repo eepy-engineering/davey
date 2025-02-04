@@ -14,6 +14,9 @@ importers:
       '@noble/curves':
         specifier: ^1.8.1
         version: 1.8.1
+      '@noble/hashes':
+        specifier: ^1.7.1
+        version: 1.7.1
     devDependencies:
       '@types/chai':
         specifier: ^5.0.0

@@ -1,11 +1,24 @@
 export const DAVE_PROTOCOL_VERSION = 1;
 
-export enum CipherSuite { // u16
-  MLS_128_DHKEMP256_AES128GCM_SHA256_P256 = 2
+/**
+ * Cipher suite type supported by MLS. (uint16)
+ * @see https://www.iana.org/assignments/mls/mls.xhtml#mls-ciphersuites
+ */
+export enum CipherSuite {
+  MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 = 1,
+  MLS_128_DHKEMP256_AES128GCM_SHA256_P256 = 2,
+  MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519 = 3,
+  MLS_256_DHKEMX448_AES256GCM_SHA512_Ed448 = 4,
+  MLS_256_DHKEMP521_AES256GCM_SHA512_P521 = 5,
+  MLS_256_DHKEMX448_CHACHA20POLY1305_SHA512_Ed448 = 6,
+  MLS_256_DHKEMP384_AES256GCM_SHA384_P384 = 7
 };
 
-/** @see https://www.iana.org/assignments/mls/mls.xhtml#mls-extension-types */
-export enum ExtensionType { // u16
+/** 
+ * Extension type for users. (uint16)
+ * @see https://www.iana.org/assignments/mls/mls.xhtml#mls-extension-types
+ */
+export enum ExtensionType {
   APPLICATION_ID = 1,
   RATCHET_TREE = 2,
   REQUIRED_CAPABILITIES = 3,
@@ -13,24 +26,38 @@ export enum ExtensionType { // u16
   EXTERNAL_SENDERS = 5,
 };
 
-/** @see https://www.iana.org/assignments/mls/mls.xhtml#mls-credential-types */
-export enum CredentialType { // u16
+/**
+ * The credential type. (uint16)
+ * @see https://www.iana.org/assignments/mls/mls.xhtml#mls-credential-types
+ */
+export enum CredentialType {
   BASIC = 1,
   X509 = 2,
 };
 
-export enum ProtocolVersion { // u16
+/**
+ * The protocol version of an MLS message. (uint16)
+ * @see https://www.rfc-editor.org/rfc/rfc9420.html#section-6
+ */
+export enum ProtocolVersion {
   MLS10 = 1,
 };
 
-export enum LeafNodeSource { // u8
+/**
+ * The source of a leaf node. (uint8)
+ * @see https://www.rfc-editor.org/rfc/rfc9420.html#section-7.2
+ */
+export enum LeafNodeSource {
   KEY_PACKAGE = 1,
   UPDATE = 2,
   COMMIT = 3,
 };
 
-/** @see https://www.iana.org/assignments/mls/mls.xhtml#mls-proposal-types */
-export enum ProposalType { // u16
+/**
+ * The proposal type for MLS messages. (uint16)
+ * @see https://www.iana.org/assignments/mls/mls.xhtml#mls-proposal-types
+ */
+export enum ProposalType {
   ADD = 1,
   UPDATE = 2,
   REMOVE = 3,
@@ -40,27 +67,39 @@ export enum ProposalType { // u16
   GROUP_CONTEXT_EXTENSIONS = 7,
 };
 
-/** @see https://daveprotocol.com/#dave_mls_proposals-27 */
-export enum ProposalsOperationType { // u16
+/**
+ * The proposal operation type for DAVE. (uint8)
+ * @see https://daveprotocol.com/#dave_mls_proposals-27
+ */
+export enum ProposalsOperationType {
   APPEND = 0,
   REVOKE = 1,
 };
 
-/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-8.4 */
-export enum PSKType { // u8
+/**
+ * The type of pre-shared key. (uint8)
+ * @see https://www.rfc-editor.org/rfc/rfc9420.html#section-8.4
+ */
+export enum PSKType {
   EXTERNAL = 1,
   RESUMPTION = 2,
 };
 
-/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-8.4 */
-export enum ResumptionPSKUsage { // u8
+/**
+ * The resumption usage of a pre-shared key. (uint8)
+ * @see https://www.rfc-editor.org/rfc/rfc9420.html#section-8.4
+ */
+export enum ResumptionPSKUsage {
   APPLICATION = 1,
   REINIT = 2,
   BRANCH = 3,
 };
 
-/** @see https://www.iana.org/assignments/mls/mls.xhtml#mls-wire-formats */
-export enum WireFormat { // u16
+/**
+ * The wire format of an MLS message. (uint16)
+ * @see https://www.iana.org/assignments/mls/mls.xhtml#mls-wire-formats
+ */
+export enum WireFormat {
   MLS_PUBLIC_MESSAGE = 1,
   MLS_PRIVATE_MESSAGE = 2,
   MLS_WELCOME = 3,
@@ -68,28 +107,41 @@ export enum WireFormat { // u16
   MLS_KEY_PACKAGE = 5,
 };
 
-/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-6-4 */
-export enum ContentType { // u8
+/**
+ * The content type for framed content. (uint8)
+ * @see https://www.rfc-editor.org/rfc/rfc9420.html#section-6-4
+ */
+export enum ContentType {
   APPLICATION = 1,
   PROPOSAL = 2,
   COMMIT = 3,
 };
 
-/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-6-4 */
-export enum SenderType { // u8
+/**
+ * The type of sender of framed content. (uint8)
+ * @see https://www.rfc-editor.org/rfc/rfc9420.html#section-6-4
+ */
+export enum SenderType {
   MEMBER = 1,
   EXTERNAL = 2,
   NEW_MEMBER_PROPOSAL = 3,
   NEW_MEMBER_COMMIT = 4,
 };
 
-export enum ProposalOrRefType { // u8
+/**
+ * The type of a ProposalOrRef, either a proposal or a reference. (uint8)
+ * @see https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4
+ */
+export enum ProposalOrRefType {
   PROPOSAL = 1,
   REFERENCE = 2,
 };
 
-/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-7.8-5 */
-export enum NodeType { // u8
+/**
+ * The type of node. (uint8)
+ * @see https://www.rfc-editor.org/rfc/rfc9420.html#section-7.8-5
+ */
+export enum NodeType {
   LEAF = 1,
   PARENT = 2,
 };
