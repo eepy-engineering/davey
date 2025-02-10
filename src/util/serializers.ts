@@ -1,7 +1,7 @@
 import { CipherSuiteInterface } from "./ciphersuite";
-import { CredentialType, ProtocolVersion, LeafNodeSource, ExtensionType } from "./constants";
+import { CredentialType, ProtocolVersion, LeafNodeSource, ExtensionType, SenderType, ContentType, ProposalOrRefType, ProposalType } from "./constants";
 import { Resolvable, serializeResolvers } from "./resolver";
-import { Capabilities, Credential, Extension, GroupContext, KeyPackage, LeafNode, LeafNodeCommit, LeafNodeKeyPackage } from "./types";
+import { Capabilities, Commit, Credential, Extension, FramedContent, GroupContext, KeyPackage, LeafNode, LeafNodeCommit, LeafNodeKeyPackage, Proposal, Sender, UpdatePath } from "./types";
 
 /** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-5.3 */
 export function serializeCredential(credential: Credential) {
@@ -88,5 +88,72 @@ export function serializeGroupContext(groupContext: GroupContext) {
     ['v', groupContext.tree_hash],                 // tree_hash
     ['v', groupContext.confirmed_transcript_hash], // confirmed_transcript_hash
     ['v', groupContext.extensions.map((e) => serializeExtension(e))], // extensions
+  ]);
+}
+
+/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-6-4 */
+export function serializeSender(sender: Sender) {
+  return serializeResolvers([
+    ['u8', sender.sender_type],
+    ...(sender.sender_type === SenderType.MEMBER
+      ? [['u32', sender.leaf_index]] as Resolvable[]
+      : sender.sender_type === SenderType.EXTERNAL
+        ? [['u32', sender.sender_index]] as Resolvable[]
+        : []
+    )
+  ]);
+}
+
+/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-7.6 */
+export function serializeUpdatePath(path: UpdatePath) {
+  return serializeResolvers([
+    serializeLeafNode(path.leaf_node),
+    ['v', path.nodes.map((n) => ([
+      ['v', n.encryption_key],
+      ['v', n.encrypted_path_secret.kem_output],
+      ['v', n.encrypted_path_secret.ciphertext],
+    ] as Resolvable[])).reduce((p, v) => ([...p, ...v]), [])]
+  ]);
+}
+
+/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-12.1 */
+export function serializeProposal(proposal: Proposal) {
+  return serializeResolvers([
+    ['u8', proposal.proposal_type],
+    ...(proposal.proposal_type === ProposalType.ADD
+      ? [serializeKeyPackage(proposal.key_package)] as Resolvable[]
+      : [['u32', proposal.removed]] as Resolvable[]
+    )
+  ]);
+}
+
+/** https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4-3 */
+export function serializeCommit(commit: Commit) {
+  return serializeResolvers([
+    ['v', commit.proposals.map((p) => {
+      if (p.type === ProposalOrRefType.PROPOSAL)
+        return [
+          ['u8', p.type],
+          serializeProposal(p.proposal)
+        ] as Resolvable[];
+      else
+        return [
+          ['u8', p.type],
+          ['v', p.reference]
+        ] as Resolvable[];
+    }).reduce((p, v) => ([...p, ...v]), [])],
+    ['o', commit.path ? serializeUpdatePath(commit.path) : undefined]
+  ]);
+}
+
+/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-6-4 */
+export function serializeFramedContent(content: FramedContent) {
+  return serializeResolvers([
+    ['v', content.group_id],
+    ['u64', content.epoch],
+    serializeSender(content.sender),
+    ['u8', content.content_type],
+    ['v', content.authenticated_data],
+    content.content_type === ContentType.COMMIT ? serializeCommit(content.commit) : serializeProposal(content.proposal)
   ]);
 }

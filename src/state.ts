@@ -1,11 +1,10 @@
 import KeySchedule from "./keySchedule";
 import RatchetTree from "./ratchetTree";
 import type { DAVESession } from "./session";
-import { Tree } from "./tree";
 import type { DataCursor } from "./util";
-import { CipherSuite, ContentType, CredentialType, ExtensionType, LeafNodeSource, MLSLabels, MLSReferenceLabels, ProposalType, ProtocolVersion, SenderType, WireFormat } from "./util/constants";
-import { serializeResolvers } from "./util/resolver";
-import { Extension, GroupContext } from "./util/types";
+import { CipherSuite, ContentType, CredentialType, ExtensionType, LeafNodeSource, MLSLabels, MLSReferenceLabels, ProposalOrRefType, ProposalType, ProtocolVersion, SenderType, WireFormat } from "./util/constants";
+import { macAuthenticatedContent, signFramedContent } from "./util/signing";
+import { AddProposal, Commit, FramedContent, GroupContext, Proposal, ProposalOrRefProposal, RemoveProposal, UpdatePath } from "./util/types";
 
 export class MLSState {
   #session: DAVESession;
@@ -47,6 +46,113 @@ export class MLSState {
     this.#ratchetTree = ratchetTree;
     this.#groupContext = groupContext;
     this.#keySchedule = keySchedule;
+  }
+
+  
+  #processAddProposal(proposal: AddProposal, ratchetTree: RatchetTree) {
+    // add the new leaf node to the tree
+    const addedNode = ratchetTree.addLeaf(proposal.key_package.leaf_node);
+    // set unmerged_leaves for each non-blank intermediate node along the direct path
+    const intermediates = addedNode.directPath().filter(n => n.data != null);
+    intermediates.pop();
+    for (const node of intermediates) {
+      if (node.data == null) continue;
+      const nodeData = ratchetTree.assertParentNode(node);
+      nodeData.unmerged_leaves.push(addedNode.index / 2);
+      // make sure unmerged_leaves is sorted in ascending order
+      nodeData.unmerged_leaves.sort((a, b) => a - b);
+      ratchetTree.setNode(node.index, nodeData);
+    }
+  }
+
+  #processRemoveProposal(proposal: RemoveProposal, ratchetTree: RatchetTree) {
+    // remove the leaf node from the tree
+    ratchetTree.setNode(proposal.removed, undefined);
+
+    // blank all intermediate nodes
+    const nodes = this.#ratchetTree.directPath(ratchetTree.getIndexedNode(proposal.removed));
+    nodes.pop();
+    for (const node of nodes) ratchetTree.setNode(node.index, undefined);
+
+    // Truncate the tree by removing the right subtree until there is at least one non-blank leaf node in the right subtree. If the rightmost non-blank leaf has index L, then this will result in the tree having 2d leaves, where d is the smallest value such that 2^d > L.
+    const lastNonBlankLeaf = ratchetTree.lastNonBlankLeaf;
+    if (!lastNonBlankLeaf) throw new Error("No non-blank leaf nodes");
+    const leafIndex = lastNonBlankLeaf.index / 2;
+    let d = 0;
+    while (leafIndex >= (1 << d)) d++;
+    while (ratchetTree.leafCount !== (1 << d)) ratchetTree.truncate();
+  }
+
+  async applyProposals(proposals: Proposal[]) {
+    const newRatchetTree = this.#ratchetTree.clone();
+
+    // apply remove proposals
+    const removeProposals = proposals.filter((p) => p.proposal_type === ProposalType.REMOVE);
+    for (const proposal of removeProposals) this.#processRemoveProposal(proposal as RemoveProposal, newRatchetTree);
+  
+    // apply add proposals
+    const addProposals = proposals.filter((p) => p.proposal_type === ProposalType.ADD);
+    for (const proposal of addProposals) this.#processAddProposal(proposal as AddProposal, newRatchetTree);
+
+    this.#ratchetTree = newRatchetTree;
+  }
+
+  async createCommit(proposals: Proposal[], signature_key: Uint8Array) {
+    const newRatchetTree = this.#ratchetTree.clone();
+    const ciphersuite = this.#session.ciphersuite;
+    let newGroupContext = {
+      ...this.#groupContext,
+      epoch: this.#groupContext.epoch + 1n
+    } satisfies GroupContext;
+    await this.applyProposals(proposals);
+    const shouldPopulatePath = proposals.some((p) => p.proposal_type === ProposalType.REMOVE);
+    let path: UpdatePath | undefined = undefined;
+    let commit_secret: Uint8Array | undefined = undefined;
+
+    // perform the direct path update, if needed
+    if (shouldPopulatePath) {
+      const pathSecrets = await newRatchetTree.updateDirectPath(newRatchetTree.getIndexedNode(this.#leafIndex / 2), this.#groupContext, ciphersuite);
+      commit_secret = await ciphersuite.deriveSecret(pathSecrets.at(-1) as Uint8Array, new TextEncoder().encode("path"));
+      newGroupContext.tree_hash = newRatchetTree.hash(newRatchetTree.root, ciphersuite);
+      path = await newRatchetTree.encryptPathSecrets(newRatchetTree.getIndexedNode(this.#leafIndex / 2), pathSecrets, newGroupContext, ciphersuite);
+    }
+
+    const commit = {
+      proposals: proposals.map(p => ({ proposal: p, type: ProposalOrRefType.PROPOSAL } satisfies ProposalOrRefProposal)),
+      path
+    } satisfies Commit;
+    if (!commit_secret) commit_secret = new Uint8Array(ciphersuite.kdf.hashSize).fill(0);
+
+    const framed_content = {
+      group_id: this.#groupContext.group_id,
+      epoch: this.#groupContext.epoch,
+      sender: {
+        sender_type: SenderType.MEMBER,
+        leaf_index: this.#leafIndex
+      },
+      content_type: ContentType.COMMIT,
+      authenticated_data: new Uint8Array(),
+      commit
+    } satisfies FramedContent;
+
+    const auth = await signFramedContent({
+      framed_content,
+      wire_format: WireFormat.MLS_PUBLIC_MESSAGE,
+      signature_key,
+      ciphersuite,
+      confirmation_key: this.#keySchedule.getSecret("confirmation_key")
+    });
+
+    const membership_tag = await macAuthenticatedContent({
+      framed_content,
+      wire_format: WireFormat.MLS_PUBLIC_MESSAGE,
+      auth,
+      ciphersuite,
+      membership_key: this.#keySchedule.getSecret("membership_key")!
+    });
+
+    // TODO put it all together
+    // TODO welcome also
   }
 
   // TODO pass recognized user IDs

@@ -1,4 +1,4 @@
-import { ProtocolVersion, ExtensionType, ProposalType, CredentialType, CipherSuite, LeafNodeSource, SenderType } from "./constants";
+import { ProtocolVersion, ExtensionType, ProposalType, CredentialType, CipherSuite, LeafNodeSource, SenderType, ProposalOrRefType, ContentType } from "./constants";
 
 export interface Capabilities {
   versions: ProtocolVersion[];
@@ -148,3 +148,49 @@ export interface RemoveProposal extends ProposalBase {
 }
 
 export type Proposal = AddProposal | RemoveProposal;
+
+interface ProposalOrRefBase {
+  type: ProposalOrRefType;
+}
+
+export interface ProposalOrRefProposal extends ProposalOrRefBase {
+  type: ProposalOrRefType.PROPOSAL;
+  proposal: Proposal;
+}
+
+export interface ProposalOrRefReference extends ProposalOrRefBase {
+  type: ProposalOrRefType.REFERENCE;
+  reference: number; // u32
+}
+
+export type ProposalOrRef = ProposalOrRefProposal | ProposalOrRefReference;
+
+export interface Commit {
+  proposals: ProposalOrRef[];
+  path?: UpdatePath | undefined;
+}
+
+interface FramedContentBase {
+  group_id: Uint8Array;
+  epoch: bigint;
+  sender: Sender;
+  content_type: ContentType;
+  authenticated_data: Uint8Array;
+}
+
+export interface FramedContentProposal extends FramedContentBase {
+  content_type: ContentType.PROPOSAL;
+  proposal: Proposal;
+}
+
+export interface FramedContentCommit extends FramedContentBase {
+  content_type: ContentType.COMMIT;
+  commit: Commit;
+}
+
+export type FramedContent = FramedContentProposal | FramedContentCommit;
+
+export interface FramedContentAuthData {
+  signature: Uint8Array;
+  confirmation_tag?: Uint8Array | undefined;
+}

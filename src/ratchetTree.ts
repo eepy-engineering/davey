@@ -127,14 +127,14 @@ export default class RatchetTree extends ArrayTree<RatchetTreeNode> {
       // get the copath child
       const copathChild = copath.find(c => c.parent().index === parentHashNode.index);
       if (copathChild == null) throw new Error("Copath child not found (but should exist)");
-      const parentHashNodeData = this.#assertParentNode(parentHashNode);
+      const parentHashNodeData = this.assertParentNode(parentHashNode);
 
       let parentHash: Uint8Array | undefined = undefined;
       // don't encode the parent hash if this is the root node
       if (i !== 0) {
         // get the parent hash of the above node in this filtered direct path (which is one index below)
         const nextNode = this.getIndexedNode(parentHashNodes[i - 1]!.index);
-        const nextNodeData = this.#assertParentNode(nextNode);
+        const nextNodeData = this.assertParentNode(nextNode);
         parentHash = nextNodeData.parent_hash;
       }
 
@@ -144,7 +144,7 @@ export default class RatchetTree extends ArrayTree<RatchetTreeNode> {
         const leafNodePath = leafNode.directPath();
         for (const n of leafNodePath) {
           if (n.data == null) continue;
-          const nodeData = this.#assertParentNode(n);
+          const nodeData = this.assertParentNode(n);
           nodeData.unmerged_leaves = nodeData.unmerged_leaves.filter(l => l !== leaf);
           this.setNode(n.index, nodeData);
         }
@@ -185,7 +185,7 @@ export default class RatchetTree extends ArrayTree<RatchetTreeNode> {
       // derive the node key pair using the secret
       const nodeSecret = await cipherSuite.deriveSecret(pathSecrets[i], new TextEncoder().encode("node"));
       const nodeKeyPair = await cipherSuite.deriveKeyPair(nodeSecret);
-      const nodeData = this.#assertParentNode(node);
+      const nodeData = this.assertParentNode(node);
       nodeData.private_key = nodeKeyPair.privateKey;
       nodeData.encryption_key = await cipherSuite.kem.serializePublicKey(nodeKeyPair.publicKey).then(pk => new Uint8Array(pk));
       this.setNode(node.index, nodeData);
@@ -193,13 +193,13 @@ export default class RatchetTree extends ArrayTree<RatchetTreeNode> {
     // time to generate parent hashes along the filtered direct path
     await this.computeParentHashes(leafNode, cipherSuite);
     // update this leaf node
-    let leafData = this.#assertLeafNode(leafNode);
+    let leafData = this.assertLeafNode(leafNode);
     leafData = {
       ...leafData,
       private_key: leafKeyPair.privateKey,
       encryption_key: leafKeyPair.publicKey,
       leaf_node_source: LeafNodeSource.COMMIT,
-      parent_hash: this.#assertParentNode(leafNode.parent()).parent_hash
+      parent_hash: this.assertParentNode(leafNode.parent()).parent_hash
     } satisfies LeafNodeCommit;
     // const leafNodeSignatureData = ConstructLeafNodeSignatureData(leafData, groupContext.group_id, Uint32.from(leafNode.index / 2));
     // leafData.signature = await cipherSuite.signWithLabel(
@@ -223,7 +223,7 @@ export default class RatchetTree extends ArrayTree<RatchetTreeNode> {
       }
       const copathResolution = this.resolution(copathChild);
       for (const copathNode of copathResolution) {
-        const copathData = this.#assertParentNode(copathNode);
+        const copathData = this.assertParentNode(copathNode);
         const { ciphertext, encKey } = await cipherSuite.encryptWithLabel(copathData.encryption_key, "UpdatePathNode", encodedGroupContext, pathSecrets[i + 1]!);
         const updateNode = {
           encryption_key: copathData.encryption_key,
@@ -236,7 +236,7 @@ export default class RatchetTree extends ArrayTree<RatchetTreeNode> {
       }
     }
     return {
-      leaf_node: this.#assertLeafNode(leafNode),
+      leaf_node: this.assertLeafNode(leafNode),
       nodes: encryptedPaths
     } satisfies UpdatePath
   }
@@ -245,14 +245,14 @@ export default class RatchetTree extends ArrayTree<RatchetTreeNode> {
     return RatchetTree.buildFromNodes(this.nodes);
   }
 
-  #assertLeafNode(node?: IndexedType<RatchetTreeNode>) {
+  assertLeafNode(node?: IndexedType<RatchetTreeNode>) {
     if (node == null) throw new Error("Node is null");
     if (node.data == null) throw new Error("Node is not a leaf (blank)");
     if (!isLeafNode(node.data)) throw new Error("Node is not a leaf (different type)");
     return node.data;
   }
 
-  #assertParentNode(node?: IndexedType<RatchetTreeNode>) {
+  assertParentNode(node?: IndexedType<RatchetTreeNode>) {
     if (node == null) throw new Error("Node is null");
     if (node.data == null) throw new Error("Node is not a parent (blank)");
     if (!isParentNode(node.data)) throw new Error("Node is not a parent (different type)");
