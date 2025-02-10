@@ -1,4 +1,4 @@
-import { ProtocolVersion, ExtensionType, ProposalType, CredentialType, CipherSuite, LeafNodeSource } from "./constants";
+import { ProtocolVersion, ExtensionType, ProposalType, CredentialType, CipherSuite, LeafNodeSource, SenderType } from "./constants";
 
 export interface Capabilities {
   versions: ProtocolVersion[];
@@ -108,3 +108,43 @@ export interface UpdatePath {
   leaf_node: LeafNode;
   nodes: UpdatePathNode[];
 }
+
+interface SenderBase {
+  sender_type: SenderType;
+}
+
+export interface SenderMember extends SenderBase {
+  sender_type: SenderType.MEMBER;
+  leaf_index: number;
+}
+
+export interface SenderExternal extends SenderBase {
+  sender_type: SenderType.EXTERNAL;
+  sender_index: number;
+}
+
+export interface SenderNewMemberProposal extends SenderBase {
+  sender_type: SenderType.NEW_MEMBER_PROPOSAL;
+}
+
+export interface SenderNewMemberCommit extends SenderBase {
+  sender_type: SenderType.NEW_MEMBER_COMMIT;
+}
+
+export type Sender = SenderMember | SenderExternal | SenderNewMemberProposal | SenderNewMemberCommit;
+
+interface ProposalBase {
+  proposal_type: ProposalType;
+}
+
+export interface AddProposal extends ProposalBase {
+  proposal_type: ProposalType.ADD;
+  key_package: KeyPackage;
+}
+
+export interface RemoveProposal extends ProposalBase {
+  proposal_type: ProposalType.REMOVE;
+  removed: number;
+}
+
+export type Proposal = AddProposal | RemoveProposal;

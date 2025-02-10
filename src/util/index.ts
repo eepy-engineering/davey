@@ -29,14 +29,13 @@ export function readVarint(buf: Uint8Array, start: number) {
   return { offset: length, v };
 }
 
-
-// TODO errors when going over buffer
 export class DataCursor {
   index = 0;
 
   constructor(public length: number, public buffer: Buffer) {}
 
   move(to: number) {
+    if (this.lengthLeft < to) throw new Error(`Not enough data to move ${to}`);
     this.index += to;
   }
 
@@ -69,7 +68,7 @@ export class DataCursor {
   }
 
   get lengthLeft() {
-    return this.length - (this.index + 1);
+    return this.length - this.index;
   }
 
   get ended() {
@@ -83,25 +82,40 @@ export class DataCursor {
     return result;
   }
 
+  parseVector<T>(func: (cursor: DataCursor) => T): T[] {
+    const array = new Array<T>();
+    const vector = this.readVector();
+    const cursor = new DataCursor(vector.length, vector);
+    while (true) {
+      if (cursor.ended) break;
+      array.push(func(cursor));
+    }
+    return array;
+  }
+
   readU8() {
+    if (this.lengthLeft < 1) throw new Error("Not enough data to read a u8");
     const result = this.buffer.readUInt8(this.index);
     this.move(1);
     return result;
   }
 
   readU16() {
+    if (this.lengthLeft < 2) throw new Error("Not enough data to read a u16");
     const result = this.buffer.readUInt16BE(this.index);
     this.move(2);
     return result;
   }
 
   readU32() {
+    if (this.lengthLeft < 4) throw new Error("Not enough data to read a u32");
     const result = this.buffer.readUInt32BE(this.index);
     this.move(4);
     return result;
   }
 
   readU64() {
+    if (this.lengthLeft < 8) throw new Error("Not enough data to read a u64");
     const result = this.buffer.readBigUInt64BE(this.index);
     this.move(8);
     return result;

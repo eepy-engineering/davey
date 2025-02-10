@@ -38,7 +38,6 @@ export class MLSState {
     const confirmation_tag = await session.ciphersuite.mac(confirmation_key, group.#groupContext.confirmed_transcript_hash);
     // compute the interim transcript hash
     await keySchedule.computeInterimTranscriptHash(group.#groupContext.confirmed_transcript_hash, confirmation_tag);
-    // TODO: implement the DS
     return group;
   }
 
