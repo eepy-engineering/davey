@@ -46,6 +46,6 @@
 		"target": "ESNext",
 		"useDefineForClassFields": true
 	},
-	"include": ["src/**/*.ts", "src/**/*.js", "src/**/*.cjs", "src/**/*.mjs"],
+	"include": ["*.ts", "*.js"],
 	"exclude": ["node_modules"]
 }

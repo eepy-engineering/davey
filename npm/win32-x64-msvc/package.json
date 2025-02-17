@@ -1,0 +1,30 @@
+{
+  "name": "@snazzah/davey-win32-x64-msvc",
+  "version": "0.0.0",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "davey.win32-x64-msvc.node",
+  "files": [
+    "davey.win32-x64-msvc.node"
+  ],
+  "description": "DAVE protocol implementation",
+  "keywords": [
+    "discord",
+    "e2ee",
+    "mls"
+  ],
+  "author": {
+    "name": "Snazzah",
+    "email": "me@snazzah.com",
+    "url": "https://snazzah.com/"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">= 10"
+  },
+  "repository": "https://github.com/Snazzah/davey"
+}

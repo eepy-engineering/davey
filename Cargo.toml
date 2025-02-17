@@ -1,0 +1,29 @@
+[package]
+edition = "2021"
+name = "snazzah_davey"
+version = "0.0.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
+napi = { version = "2.12.2", default-features = false, features = ["napi4"] }
+napi-derive = "2.12.2"
+openmls = "0.6.0"
+openmls_basic_credential = "0.3.0"
+openmls_rust_crypto = "0.3.0"
+p256 = { version = "0.13" }
+rand = "0.8"
+
+[patch.crates-io]
+openmls = { path = "./openmls/openmls" }
+openmls_basic_credential = { path = "./openmls/basic_credential" }
+openmls_rust_crypto = { path = "./openmls/openmls_rust_crypto" }
+
+[build-dependencies]
+napi-build = "2.0.1"
+
+[profile.release]
+lto = true
+strip = "symbols"

@@ -54,3 +54,8 @@ bun.lockb
 .prettiercache
 .eslintcache
 .vercel
+
+# Rust
+/target
+Cargo.lock
+*.node
