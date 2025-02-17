@@ -3,6 +3,7 @@ import RatchetTree from "./ratchetTree";
 import type { DAVESession } from "./session";
 import type { DataCursor } from "./util";
 import { CipherSuite, ContentType, CredentialType, ExtensionType, LeafNodeSource, MLSLabels, MLSReferenceLabels, ProposalOrRefType, ProposalType, ProtocolVersion, SenderType, WireFormat } from "./util/constants";
+import { serializeFramedContent, serializeFramedContentAuthData, serializeKeyPackage, serializeLeafNode } from "./util/serializers";
 import { macAuthenticatedContent, signFramedContent } from "./util/signing";
 import { AddProposal, Commit, FramedContent, GroupContext, Proposal, ProposalOrRefProposal, RemoveProposal, UpdatePath } from "./util/types";
 
@@ -150,6 +151,35 @@ export class MLSState {
       ciphersuite,
       membership_key: this.#keySchedule.getSecret("membership_key")!
     });
+
+    const public_message = Buffer.concat([serializeFramedContent(framed_content), serializeFramedContentAuthData(auth), membership_tag]);
+
+    const addedProposals = proposals.filter((p) => p.proposal_type === ProposalType.ADD);
+    if (addedProposals.length) {
+      // struct {
+      //   opaque path_secret<V>;
+      // } PathSecret;
+      
+      // struct {
+      //   opaque joiner_secret<V>;
+      //   optional<PathSecret> path_secret;
+      //   PreSharedKeyID psks<V>;
+      // } GroupSecrets;
+      
+      // struct {
+      //   KeyPackageRef new_member;
+      //   HPKECiphertext encrypted_group_secrets;
+      // } EncryptedGroupSecrets;
+      
+      // struct {
+      //   CipherSuite cipher_suite;
+      //   EncryptedGroupSecrets secrets<V>;
+      //   opaque encrypted_group_info<V>;
+      // } Welcome;
+      for (const prop of addedProposals) {
+        const kpHash = ciphersuite.refHash(MLSReferenceLabels.KEY_PACKAGE_REFERENCE, serializeKeyPackage(prop.key_package));
+      }
+    }
 
     // TODO put it all together
     // TODO welcome also

@@ -1,7 +1,7 @@
 import { CipherSuiteInterface } from "./ciphersuite";
 import { CredentialType, ProtocolVersion, LeafNodeSource, ExtensionType, SenderType, ContentType, ProposalOrRefType, ProposalType } from "./constants";
 import { Resolvable, serializeResolvers } from "./resolver";
-import { Capabilities, Commit, Credential, Extension, FramedContent, GroupContext, KeyPackage, LeafNode, LeafNodeCommit, LeafNodeKeyPackage, Proposal, Sender, UpdatePath } from "./types";
+import { Capabilities, Commit, Credential, Extension, FramedContent, FramedContentAuthData, GroupContext, KeyPackage, LeafNode, LeafNodeCommit, LeafNodeKeyPackage, Proposal, Sender, UpdatePath } from "./types";
 
 /** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-5.3 */
 export function serializeCredential(credential: Credential) {
@@ -127,7 +127,7 @@ export function serializeProposal(proposal: Proposal) {
   ]);
 }
 
-/** https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4-3 */
+/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4-3 */
 export function serializeCommit(commit: Commit) {
   return serializeResolvers([
     ['v', commit.proposals.map((p) => {
@@ -155,5 +155,13 @@ export function serializeFramedContent(content: FramedContent) {
     ['u8', content.content_type],
     ['v', content.authenticated_data],
     content.content_type === ContentType.COMMIT ? serializeCommit(content.commit) : serializeProposal(content.proposal)
+  ]);
+}
+
+/** @see https://www.rfc-editor.org/rfc/rfc9420.html#section-6.1-2 */
+export function serializeFramedContentAuthData(auth: FramedContentAuthData) {
+  return serializeResolvers([
+    ['v', auth.signature],
+    ...(auth.confirmation_tag ? [['v', auth.confirmation_tag]] as Resolvable[] : [])
   ]);
 }
