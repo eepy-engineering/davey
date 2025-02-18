@@ -1,0 +1,34 @@
+import { expect, test, describe } from 'bun:test';
+import { DAVESession } from '../index.js';
+
+describe("DAVESession", () => {
+  describe("constructor()", () => {
+    test("creates session successfully", () => {
+      const session = new DAVESession(1, '158049329150427136', '927310423890473011');
+      expect(session).toBeInstanceOf(DAVESession);
+      expect(session.protocolVersion).toBe(1);
+      expect(session.userId).toBe('158049329150427136');
+      expect(session.channelId).toBe('927310423890473011');
+    });
+  
+    test("throws on invalid protocol version", () => {
+      expect(() => new DAVESession(0, '158049329150427136', '927310423890473011')).toThrowError();
+    });
+  });
+
+  describe("setExternalSender()", () => {
+    test("runs successfully", () => {
+      const externalSender = Buffer.from([
+        /* 0x00, 0x04, 0x19, */ 0x40, 0x41, 0x04, 0xCA, 0x1A, 0x2B, 0x10, 0x25, 0x01, 0xD0, 0x67, 0x2B, 0xD4, 
+        0x5E, 0xD7, 0x4F, 0xFB, 0x83, 0xE0, 0x78, 0xB2, 0xBA, 0x5B, 0x12, 0xC3, 0xF6, 0x9F, 0xAD, 0x56, 
+        0xF0, 0x83, 0xB6, 0xA3, 0x5F, 0xC9, 0x89, 0xC6, 0x73, 0x6B, 0x58, 0x52, 0xB5, 0xAE, 0xCD, 0xFC, 
+        0xDF, 0x20, 0x6E, 0x15, 0x6D, 0x3D, 0x1D, 0xBA, 0x8E, 0x3E, 0x5B, 0x2F, 0x89, 0xFC, 0x0C, 0x16, 
+        0xF1, 0x16, 0x14, 0xE8, 0x4E, 0x4A, 0x00, 0x01, 0x01, 0x00, 
+      ]);
+
+      const session = new DAVESession(1, '158049329150427136', '927310423890473011');
+
+      expect(() => session.setExternalSender(externalSender)).not.toThrowError();
+    });
+  });
+});

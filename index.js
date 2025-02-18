@@ -310,6 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { generateSigningKeys } = nativeBinding
+const { DAVESession, generateSigningKeys } = nativeBinding
 
+module.exports.DAVESession = DAVESession
 module.exports.generateSigningKeys = generateSigningKeys

@@ -8,3 +8,31 @@ export interface SigningKeyPair {
   public: Buffer
 }
 export declare function generateSigningKeys(ciphersuite: number): SigningKeyPair
+export type DaveSession = DAVESession
+export declare class DAVESession {
+  constructor(protocolVersion: number, userId: string, channelId: string)
+  get userId(): string
+  get channelId(): string
+  get protocolVersion(): number
+  get ciphersuite(): number
+  /**
+   * Set the external sender this session will recieve from.
+   * @param externalSenderData The serialized external sender data.
+   * @throws Will throw if the external sender is invalid.
+   * @see https://daveprotocol.com/#dave_mls_external_sender_package-25
+   */
+  setExternalSender(externalSenderData: Buffer): void
+  /**
+   * Create and return the serialized key package buffer.
+   * Key packages are not meant to be reused, and will be recreated on each call of this function.
+   */
+  getSerializedKeyPackage(): Buffer
+  /**
+   * Create a pending group that may recieve proposals.
+   * You must use {@link getSerializedKeyPackage} and {@link setExternalSender} before using this function.
+   */
+  createPendingGroup(): void
+  get itemsInStorage(): number
+  /** @ignore */
+  toString(): string
+}
