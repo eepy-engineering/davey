@@ -27,6 +27,20 @@ pub fn dave_protocol_version_to_capabilities(protocol_version: DAVEProtocolVersi
   }
 }
 
+#[napi]
+#[derive(Debug,PartialEq)]
+pub enum ProposalsOperationType {
+  APPEND = 0,
+  REVOKE = 1
+}
+
+
+#[napi(object)]
+pub struct ProposalsResult {
+	pub commit: Buffer,
+	pub welcome: Option<Buffer>,
+}
+
 #[napi(js_name = "DAVESession")]
 pub struct DaveSession {
   protocol_version: DAVEProtocolVersion,
@@ -68,11 +82,13 @@ impl DaveSession {
     })
   }
 
+  /// The DAVE protocol version used for this session.
   #[napi(getter)]
   pub fn protocol_version(&self) -> napi::Result<i32> {
     Ok(self.protocol_version as i32)
   }
 
+  /// The user ID for this session.
   #[napi(getter)]
   pub fn user_id(&self) -> napi::Result<String> {
     Ok(
@@ -83,6 +99,7 @@ impl DaveSession {
     )
   }
 
+  /// The channel ID (group ID in MLS standards) for this session.
   #[napi(getter)]
   pub fn channel_id(&self) -> napi::Result<String> {
     Ok(
@@ -93,6 +110,7 @@ impl DaveSession {
     )
   }
 
+  /// The ciphersuite being used in this session.
   #[napi(getter)]
   pub fn ciphersuite(&self) -> napi::Result<i32> {
     Ok(self.ciphersuite as i32)
@@ -133,7 +151,7 @@ impl DaveSession {
         .map_err(|err| Error::from_reason(format!("Error creating key package: {err}")))?;
 
     let buffer = key_package.key_package().tls_serialize_detached()
-      .map_err(|err| Error::from_reason(format!("Error deserializing key package: {err}")))?;
+      .map_err(|err| Error::from_reason(format!("Error serializing key package: {err}")))?;
 
     Ok(Buffer::from(buffer))
   }
@@ -170,13 +188,102 @@ impl DaveSession {
     Ok(())
   }
 
+  /// Process proposals from an opcode 27 payload.
+  /// @param operationType The operation type of the proposals.
+  /// @param proposals The vector of proposals or proposal refs of the payload. (depending on operation type)
+  /// @see https://daveprotocol.com/#dave_mls_proposals-27
+  #[napi]
+  pub fn process_proposals(&mut self, operation_type: ProposalsOperationType, proposals: Buffer) -> napi::Result<ProposalsResult> {
+    // TODO account for current group too
+    // TODO support revokes
+    if self.pending_group.is_none() {
+      return Err(Error::from_reason("Cannot process proposals without a group".to_owned()));
+    }
+
+    let group = self.pending_group.as_mut().unwrap();
+
+    println!("processing proposals, optype {:?}", operation_type);
+
+    let proposals: Vec<u8> = VLBytes::tls_deserialize_exact_bytes(&proposals)
+      .map_err(|err| Error::from_reason(format!("Error deserializing proposal vector: {err}")))?
+      .into();
+
+    if operation_type == ProposalsOperationType::APPEND {
+      let mut remaining_bytes: &[u8] = &proposals;
+      while remaining_bytes.len() != 0 {
+        let (mls_message, leftover) =
+          MlsMessageIn::tls_deserialize_bytes(&remaining_bytes)
+          .map_err(|err| Error::from_reason(format!("Error deserializing MLS message: {err}")))?;
+        remaining_bytes = leftover;
+  
+        let protocol_message = mls_message
+          .try_into_protocol_message()
+          .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_owned()))?;
+
+        let processed_message = group
+          .process_message(&self.provider, protocol_message)
+          .map_err(|err| Error::from_reason(format!("Could not process message: {err}")))?;
+
+        
+        match processed_message.into_content() {
+          ProcessedMessageContent::ProposalMessage(proposal) => {
+            group
+              .store_pending_proposal(self.provider.storage(), *proposal)
+              .map_err(|err| Error::from_reason(format!("Could not store proposal: {err}")))?;
+          }
+          _ => return Err(Error::from_reason("ProcessedMessage is not a ProposalMessage".to_owned())),
+        }
+      }
+    } else {
+      return Err(Error::from_reason("Revoked proposals not supported yet".to_owned()))
+    }
+
+    let prev_member_count = group.members().count();
+    let (commit, welcome, _group_info) = group
+      .commit_to_pending_proposals(&self.provider, &self.signer)
+      .map_err(|err| Error::from_reason(format!("Error committing pending proposals: {err}")))?;
+    group
+      .merge_pending_commit(&self.provider)
+      .map_err(|err| Error::from_reason(format!("Error merging pending proposals: {err}")))?;
+
+    let mut welcome_buffer: Option<Buffer> = None;
+
+    if group.members().count() > prev_member_count {
+      // let welcome = welcome.expect("Welcome was not returned").into_welcome().expect("Expected message to be a welcome message");
+      match welcome {
+        Some(mls_message_out) => {
+          match mls_message_out.into_welcome() {
+            Some(welcome) => {
+              welcome_buffer = Some(
+                Buffer::from(
+                  welcome.tls_serialize_detached()
+                    .map_err(|err| Error::from_reason(format!("Error serializing welcome: {err}")))?
+                )
+              )
+            },
+            _ => return Err(Error::from_reason("MLSMessage was not a Welcome".to_owned())),
+          }
+        },
+        _ => return Err(Error::from_reason("Welcome was not returned when there are new members".to_owned())),
+      }
+    }
+
+    let commit_buffer = commit.tls_serialize_detached()
+      .map_err(|err| Error::from_reason(format!("Error serializing commit: {err}")))?;
+
+    Ok(ProposalsResult {
+      commit: Buffer::from(commit_buffer),
+      welcome: welcome_buffer
+    })
+  }
+
   #[napi(getter)]
   pub fn items_in_storage(&self) -> napi::Result<i32> {
     let map_read_guard = self.provider.storage().values.read()
       .map_err(|err| Error::from_reason(format!("MemoryStorage error: {err}")))?;
     Ok(map_read_guard.len() as i32)
   }
-  
+
   /// @ignore
   #[napi]
   pub fn to_string(&self) -> napi::Result<String> {
