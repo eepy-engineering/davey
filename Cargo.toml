@@ -15,6 +15,8 @@ openmls_basic_credential = "0.3.0"
 openmls_rust_crypto = "0.3.0"
 p256 = { version = "0.13" }
 rand = "0.8"
+scrypt = { version = "0.11.0", default-features = false }
+# scrypt = { version = "0.11", default-features = false }
 
 [patch.crates-io]
 openmls = { path = "./openmls/openmls" }

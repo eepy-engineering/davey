@@ -51,6 +51,19 @@ export declare class DAVESession {
    * @see https://daveprotocol.com/#dave_mls_proposals-27
    */
   processProposals(operationType: ProposalsOperationType, proposals: Buffer): ProposalsResult
+  /**
+   * Process a welcome message.
+   * @param welcome The welcome message to process.
+   * @see https://daveprotocol.com/#dave_mls_proposals-30
+   */
+  processWelcome(welcome: Buffer): void
+  /**
+   * Process a commit.
+   * @param commit The commit to process.
+   * @see https://daveprotocol.com/#dave_mls_proposals-29
+   */
+  processCommit(commit: Buffer): void
+  getPairwiseFingerprint(version: number, userId: string): Buffer
   get itemsInStorage(): number
   /** @ignore */
   toString(): string

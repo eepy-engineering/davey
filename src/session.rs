@@ -1,7 +1,10 @@
+use std::array::TryFromSliceError;
+
 use napi::{bindgen_prelude::Buffer, Error};
 use openmls::{group::*, prelude::{tls_codec::Serialize, *}};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
+use scrypt::{scrypt, Params};
 
 type DAVEProtocolVersion = u16;
 
@@ -27,6 +30,17 @@ pub fn dave_protocol_version_to_capabilities(protocol_version: DAVEProtocolVersi
   }
 }
 
+/// Generate a key fingerprint.
+pub fn generate_key_fingerprint(version: u16, user_id: u64, key: Vec<u8>) -> Vec<u8> {
+  let mut result: Vec<u8> = vec![];
+  result.extend(version.to_be_bytes());
+  result.extend(key);
+  result.extend(user_id.to_be_bytes());
+  result
+}
+
+const FINGERPRINT_SALT: [u8; 16] = [0x24, 0xca, 0xb1, 0x7a, 0x7a, 0xf8, 0xec, 0x2b, 0x82, 0xb4, 0x12, 0xb9, 0x2d, 0xab, 0x19, 0x2e];
+
 #[napi]
 #[derive(Debug,PartialEq)]
 pub enum ProposalsOperationType {
@@ -51,7 +65,8 @@ pub struct DaveSession {
   credential_with_key: CredentialWithKey,
 
   external_sender: Option<ExternalSender>,
-  pending_group: Option<MlsGroup>
+  group: Option<MlsGroup>,
+  pending: bool
 }
  
 #[napi]
@@ -78,7 +93,8 @@ impl DaveSession {
       signer,
       credential_with_key,
       external_sender: None,
-      pending_group: None
+      pending: false,
+      group: None
     })
   }
 
@@ -183,7 +199,8 @@ impl DaveSession {
       .map_err(|err| Error::from_reason(format!("Error creating a group: {err}")))?;
 
     // group.delete(self.provider.storage());
-    self.pending_group = Some(group);
+    self.group = Some(group);
+    self.pending = true;
 
     Ok(())
   }
@@ -194,19 +211,19 @@ impl DaveSession {
   /// @see https://daveprotocol.com/#dave_mls_proposals-27
   #[napi]
   pub fn process_proposals(&mut self, operation_type: ProposalsOperationType, proposals: Buffer) -> napi::Result<ProposalsResult> {
-    // TODO account for current group too
     // TODO support revokes
-    if self.pending_group.is_none() {
+    if self.group.is_none() {
       return Err(Error::from_reason("Cannot process proposals without a group".to_owned()));
     }
 
-    let group = self.pending_group.as_mut().unwrap();
+    let group = self.group.as_mut().unwrap();
 
     println!("processing proposals, optype {:?}", operation_type);
 
     let proposals: Vec<u8> = VLBytes::tls_deserialize_exact_bytes(&proposals)
       .map_err(|err| Error::from_reason(format!("Error deserializing proposal vector: {err}")))?
       .into();
+    let mut commit_adds_members = false;
 
     if operation_type == ProposalsOperationType::APPEND {
       let mut remaining_bytes: &[u8] = &proposals;
@@ -224,32 +241,37 @@ impl DaveSession {
           .process_message(&self.provider, protocol_message)
           .map_err(|err| Error::from_reason(format!("Could not process message: {err}")))?;
 
-        
         match processed_message.into_content() {
           ProcessedMessageContent::ProposalMessage(proposal) => {
+            if let Proposal::Add(add_proposal) = proposal.proposal() {
+              let incoming_user_id = u64::from_be_bytes(
+                add_proposal.key_package().leaf_node().credential().serialized_content().try_into()
+                  .map_err(|err| Error::from_reason(format!("Failed to convert user id: {err}")))?
+              ).to_string();
+              println!("incoming user {:?}", incoming_user_id);
+            }
             group
               .store_pending_proposal(self.provider.storage(), *proposal)
               .map_err(|err| Error::from_reason(format!("Could not store proposal: {err}")))?;
           }
           _ => return Err(Error::from_reason("ProcessedMessage is not a ProposalMessage".to_owned())),
         }
+
+        commit_adds_members = true;
       }
     } else {
       return Err(Error::from_reason("Revoked proposals not supported yet".to_owned()))
     }
 
-    let prev_member_count = group.members().count();
     let (commit, welcome, _group_info) = group
       .commit_to_pending_proposals(&self.provider, &self.signer)
       .map_err(|err| Error::from_reason(format!("Error committing pending proposals: {err}")))?;
-    group
-      .merge_pending_commit(&self.provider)
-      .map_err(|err| Error::from_reason(format!("Error merging pending proposals: {err}")))?;
+
+    self.pending = false;
 
     let mut welcome_buffer: Option<Buffer> = None;
 
-    if group.members().count() > prev_member_count {
-      // let welcome = welcome.expect("Welcome was not returned").into_welcome().expect("Expected message to be a welcome message");
+    if commit_adds_members {
       match welcome {
         Some(mls_message_out) => {
           match mls_message_out.into_welcome() {
@@ -275,6 +297,156 @@ impl DaveSession {
       commit: Buffer::from(commit_buffer),
       welcome: welcome_buffer
     })
+  }
+
+  /// Process a welcome message.
+  /// @param welcome The welcome message to process.
+  /// @see https://daveprotocol.com/#dave_mls_proposals-30
+  #[napi]
+  pub fn process_welcome(&mut self, welcome: Buffer) -> napi::Result<()> {
+    if self.group.is_some() && !self.pending {
+      return Err(Error::from_reason("Cannot process a welcome after being in an established group".to_owned()))
+    }
+
+    if self.external_sender.is_none() {
+      return Err(Error::from_reason("Cannot process a welcome without an external sender".to_owned()))
+    }
+
+    let mls_group_config = MlsGroupJoinConfig::builder()
+        .use_ratchet_tree_extension(true)
+        .wire_format_policy(PURE_PLAINTEXT_WIRE_FORMAT_POLICY)
+        .build();
+
+    let welcome = Welcome::tls_deserialize_exact_bytes(&welcome)
+      .map_err(|err| Error::from_reason(format!("Error deserializing welcome: {err}")))?;
+
+    let staged_join = StagedWelcome::new_from_welcome(&self.provider, &mls_group_config, welcome, None)
+      .map_err(|err| Error::from_reason(format!("Error constructing staged join: {err}")))?;
+
+    let group = staged_join
+      .into_group(&self.provider)
+      .map_err(|err| Error::from_reason(format!("Error joining group from staged welcome: {err}")))?;
+
+    if self.group.is_some() {
+      let mut pending_group = self.group.take().unwrap();
+      pending_group.delete(self.provider.storage())
+        .map_err(|err| Error::from_reason(format!("Error clearing pending group: {err}")))?;
+    }
+
+    self.group = Some(group);
+
+    // after, send {"op":23,"d":{"transition_id":1}}
+    Ok(())
+  }
+
+  /// Process a commit.
+  /// @param commit The commit to process.
+  /// @see https://daveprotocol.com/#dave_mls_proposals-29
+  #[napi]
+  pub fn process_commit(&mut self, commit: Buffer) -> napi::Result<()> {
+    if self.group.is_none() {
+      return Err(Error::from_reason("Cannot process commit without a group".to_owned()));
+    }
+
+    if self.group.is_some() && self.pending {
+      return Err(Error::from_reason("Cannot process commit for a pending group".to_owned()))
+    }
+
+    let group = self.group.as_mut().unwrap();
+
+    let mls_message =
+      MlsMessageIn::tls_deserialize_exact_bytes(&commit)
+      .map_err(|err| Error::from_reason(format!("Error deserializing MLS message: {err}")))?;
+
+    let protocol_message = mls_message
+      .try_into_protocol_message()
+      .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_owned()))?;
+
+    let processed_message_result = group
+      .process_message(&self.provider, protocol_message);
+
+    if processed_message_result.is_err() && ProcessMessageError::InvalidCommit(StageCommitError::OwnCommit) == *processed_message_result.as_ref().unwrap_err() {
+      // This is our own commit, lets merge pending instead
+      println!("found own commit, merging pending instead");
+      group
+        .merge_pending_commit(&self.provider)
+        .map_err(|err| Error::from_reason(format!("Error merging pending commit: {err}")))?;
+    } else {
+      // Someone elses commit, go through the usual stuff
+      let processed_message = processed_message_result
+        .map_err(|err| Error::from_reason(format!("Could not process message: {err}")))?;
+
+      match processed_message.into_content() {
+        ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+          group
+            .merge_staged_commit(&self.provider, *staged_commit)
+            .map_err(|err| Error::from_reason(format!("Could not stage commit: {err}")))?;
+        }
+        _ => return Err(Error::from_reason("ProcessedMessage is not a StagedCommitMessage".to_owned())),
+      }
+    }
+
+    Ok(())
+  }
+
+  /// Create a pairwise fingerprint of you and another member.
+  /// @see https://daveprotocol.com/#verification-fingerprint
+  #[napi]
+  pub fn get_pairwise_fingerprint(&self, version: u16, user_id: String) -> napi::Result<Buffer> {
+    if self.group.is_none() || self.pending {
+      return Err(Error::from_reason("Cannot get fingerprint without an established group".to_owned()))
+    }
+
+    let our_uid = 
+      u64::from_be_bytes(
+        self.credential_with_key.credential.serialized_content().try_into()
+          .map_err(|err| Error::from_reason(format!("Failed to convert our user id: {err}")))?
+      );
+
+    let their_uid = user_id.parse::<u64>()
+      .map_err(|_| Error::from_reason("Invalid user id".to_owned()))?;
+
+    let member = self.group.as_ref().unwrap().members().find(|member| {
+      let uid = u64::from_be_bytes(
+        member.credential.serialized_content().try_into().or::<TryFromSliceError>(Ok([0, 0, 0, 0, 0, 0, 0, 0])).unwrap()
+      );
+      uid == their_uid
+    });
+
+    if member.is_none() {
+      return Err(Error::from_reason("Cannot find member in group".to_owned()))
+    }
+
+    let member = member.unwrap();
+
+    let mut fingerprints = vec![
+      generate_key_fingerprint(version, our_uid, self.signer.public().to_vec()),
+      generate_key_fingerprint(version, their_uid, member.signature_key)
+    ];
+
+    // Similar to compareArrays in libdave/js
+    fingerprints.sort_by(
+      |a, b| {
+        for i in 0..std::cmp::min(a.len(), b.len()) {
+          if a[i] != b[i] {
+            return a[i].cmp(&b[i]);
+          }
+        }
+      
+        a.len().cmp(&b.len())
+      }
+    );
+
+    let params = Params::new(14, 8, 2, 64)
+      .map_err(|_| Error::from_reason("Failed to create scrypt params".to_owned()))?;
+
+    let mut output = vec![0u8; 64];
+
+    // TODO scrypt takes a while, need to async this function
+    scrypt(fingerprints.concat().as_slice(), &FINGERPRINT_SALT.to_vec(), &params, &mut output)
+      .map_err(|_| Error::from_reason("Failed to use scrypt to hash".to_owned()))?;
+
+    Ok(Buffer::from(output))
   }
 
   #[napi(getter)]
