@@ -1,10 +1,11 @@
 use std::array::TryFromSliceError;
 
-use napi::{bindgen_prelude::Buffer, Error};
+use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error};
 use openmls::{group::*, prelude::{tls_codec::Serialize, *}};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
-use scrypt::{scrypt, Params};
+
+use crate::AsyncPairwiseFingerprintSession;
 
 type DAVEProtocolVersion = u16;
 
@@ -31,7 +32,7 @@ pub fn dave_protocol_version_to_capabilities(protocol_version: DAVEProtocolVersi
 }
 
 /// Generate a key fingerprint.
-pub fn generate_key_fingerprint(version: u16, user_id: u64, key: Vec<u8>) -> Vec<u8> {
+fn generate_key_fingerprint(version: u16, user_id: u64, key: Vec<u8>) -> Vec<u8> {
   let mut result: Vec<u8> = vec![];
   result.extend(version.to_be_bytes());
   result.extend(key);
@@ -39,7 +40,8 @@ pub fn generate_key_fingerprint(version: u16, user_id: u64, key: Vec<u8>) -> Vec
   result
 }
 
-const FINGERPRINT_SALT: [u8; 16] = [0x24, 0xca, 0xb1, 0x7a, 0x7a, 0xf8, 0xec, 0x2b, 0x82, 0xb4, 0x12, 0xb9, 0x2d, 0xab, 0x19, 0x2e];
+#[napi]
+pub const MAX_DAVE_PROTOCOL_VERSION: u16 = 1;
 
 #[napi]
 #[derive(Debug,PartialEq)]
@@ -320,6 +322,7 @@ impl DaveSession {
     let welcome = Welcome::tls_deserialize_exact_bytes(&welcome)
       .map_err(|err| Error::from_reason(format!("Error deserializing welcome: {err}")))?;
 
+    // TODO potential problems: storage for groups may clash & key package is consumed from this (this might just be fine honestly)
     let staged_join = StagedWelcome::new_from_welcome(&self.provider, &mls_group_config, welcome, None)
       .map_err(|err| Error::from_reason(format!("Error constructing staged join: {err}")))?;
 
@@ -391,8 +394,19 @@ impl DaveSession {
 
   /// Create a pairwise fingerprint of you and another member.
   /// @see https://daveprotocol.com/#verification-fingerprint
-  #[napi]
-  pub fn get_pairwise_fingerprint(&self, version: u16, user_id: String) -> napi::Result<Buffer> {
+  #[napi(ts_return_type = "Promise<Buffer>")]
+  pub fn get_pairwise_fingerprint(&self, version: u16, user_id: String) -> AsyncTask<AsyncPairwiseFingerprintSession> {
+    let result = self.get_pairwise_fingerprint_internal(version, user_id);
+    let (ok, err) = {
+      match result {
+        Ok(value) => (Some(value), None),
+        Err(err) => (None, Some(err)),
+      }
+    };
+    AsyncTask::new(AsyncPairwiseFingerprintSession { fingerprints: ok, error: err })
+  }
+
+  fn get_pairwise_fingerprint_internal(&self, version: u16, user_id: String) -> napi::Result<Vec<Vec<u8>>> {
     if self.group.is_none() || self.pending {
       return Err(Error::from_reason("Cannot get fingerprint without an established group".to_owned()))
     }
@@ -419,34 +433,12 @@ impl DaveSession {
 
     let member = member.unwrap();
 
-    let mut fingerprints = vec![
+    let fingerprints = vec![
       generate_key_fingerprint(version, our_uid, self.signer.public().to_vec()),
       generate_key_fingerprint(version, their_uid, member.signature_key)
     ];
 
-    // Similar to compareArrays in libdave/js
-    fingerprints.sort_by(
-      |a, b| {
-        for i in 0..std::cmp::min(a.len(), b.len()) {
-          if a[i] != b[i] {
-            return a[i].cmp(&b[i]);
-          }
-        }
-      
-        a.len().cmp(&b.len())
-      }
-    );
-
-    let params = Params::new(14, 8, 2, 64)
-      .map_err(|_| Error::from_reason("Failed to create scrypt params".to_owned()))?;
-
-    let mut output = vec![0u8; 64];
-
-    // TODO scrypt takes a while, need to async this function
-    scrypt(fingerprints.concat().as_slice(), &FINGERPRINT_SALT.to_vec(), &params, &mut output)
-      .map_err(|_| Error::from_reason("Failed to use scrypt to hash".to_owned()))?;
-
-    Ok(Buffer::from(output))
+    Ok(fingerprints)
   }
 
   #[napi(getter)]

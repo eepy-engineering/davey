@@ -10,6 +10,9 @@ extern crate napi_derive;
 mod session;
 pub use session::*;
 
+mod fingerprint;
+pub use fingerprint::*;
+
 #[napi(object)]
 pub struct SigningKeyPair {
 	pub private: Buffer,
