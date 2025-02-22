@@ -7,8 +7,9 @@ version = "0.0.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-# Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
-napi = { version = "2.12.2", default-features = false, features = ["napi4"] }
+env_logger = "0.11.6"
+log = "0.4.26"
+napi = { version = "2.12.2", default-features = false, features = ["napi4", "compat-mode"] }
 napi-derive = "2.12.2"
 openmls = "0.6.0"
 openmls_basic_credential = "0.3.0"
@@ -16,7 +17,6 @@ openmls_rust_crypto = "0.3.0"
 p256 = { version = "0.13" }
 rand = "0.8"
 scrypt = { version = "0.11.0", default-features = false }
-# scrypt = { version = "0.11", default-features = false }
 
 [patch.crates-io]
 openmls = { path = "./openmls/openmls" }

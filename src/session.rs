@@ -1,9 +1,9 @@
 use std::array::TryFromSliceError;
-
 use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error};
 use openmls::{group::*, prelude::{tls_codec::Serialize, *}};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
+use log::debug;
 
 use crate::AsyncPairwiseFingerprintSession;
 
@@ -40,8 +40,9 @@ fn generate_key_fingerprint(version: u16, user_id: u64, key: Vec<u8>) -> Vec<u8>
   result
 }
 
+/// The maximum supported version of the DAVE protocol.
 #[napi]
-pub const MAX_DAVE_PROTOCOL_VERSION: u16 = 1;
+pub const DAVE_PROTOCOL_VERSION: u16 = 1;
 
 #[napi]
 #[derive(Debug,PartialEq)]
@@ -50,6 +51,15 @@ pub enum ProposalsOperationType {
   REVOKE = 1
 }
 
+#[napi]
+#[derive(Debug,PartialEq)]
+#[allow(non_camel_case_types)]
+pub enum SessionStatus {
+  INACTIVE = 0,
+  PENDING = 1,
+  AWAITING_COMMIT = 2,
+  ACTIVE = 3
+}
 
 #[napi(object)]
 pub struct ProposalsResult {
@@ -68,8 +78,10 @@ pub struct DaveSession {
 
   external_sender: Option<ExternalSender>,
   group: Option<MlsGroup>,
-  pending: bool
+  status: SessionStatus
 }
+
+// TODO make the session resettable (except external sender, like in libdave)
  
 #[napi]
 impl DaveSession {
@@ -95,8 +107,8 @@ impl DaveSession {
       signer,
       credential_with_key,
       external_sender: None,
-      pending: false,
-      group: None
+      group: None,
+      status: SessionStatus::INACTIVE
     })
   }
 
@@ -134,6 +146,18 @@ impl DaveSession {
     Ok(self.ciphersuite as i32)
   }
 
+  /// The status of this session.
+  #[napi(getter)]
+  pub fn status(&self) -> napi::Result<SessionStatus> {
+    Ok(self.status)
+  }
+
+  /// Whether this session's group was created.
+  #[napi(getter)]
+  pub fn group_created(&self) -> napi::Result<bool> {
+    Ok(self.group.is_some())
+  }
+
   /// Set the external sender this session will recieve from.
   /// @param externalSenderData The serialized external sender data.
   /// @throws Will throw if the external sender is invalid.
@@ -143,10 +167,11 @@ impl DaveSession {
     let external_sender = ExternalSender::tls_deserialize_exact_bytes(&external_sender_data)
       .map_err(|err| Error::from_reason(format!("Failed to deserialize external sender: {err}")))?;
     self.external_sender = Some(external_sender);
+    debug!("External sender set.");
     Ok(())
   }
 
-  /// Create and return the serialized key package buffer.
+  /// Create, store, and return the serialized key package buffer.
   /// Key packages are not meant to be reused, and will be recreated on each call of this function.
   #[napi]
   pub fn get_serialized_key_package(&mut self) -> napi::Result<Buffer> {
@@ -170,6 +195,8 @@ impl DaveSession {
 
     let buffer = key_package.key_package().tls_serialize_detached()
       .map_err(|err| Error::from_reason(format!("Error serializing key package: {err}")))?;
+
+    debug!("Created key package for channel {:?}.", self.channel_id().ok().unwrap_or_default());
 
     Ok(Buffer::from(buffer))
   }
@@ -202,14 +229,18 @@ impl DaveSession {
 
     // group.delete(self.provider.storage());
     self.group = Some(group);
-    self.pending = true;
+    self.status = SessionStatus::PENDING;
+
+    debug!("Created pending group for channel {:?}.", self.channel_id().ok().unwrap_or_default());
 
     Ok(())
   }
 
+  // TODO add recognized user IDs in processProposals call
   /// Process proposals from an opcode 27 payload.
   /// @param operationType The operation type of the proposals.
   /// @param proposals The vector of proposals or proposal refs of the payload. (depending on operation type)
+  /// @returns A commit and a welcome (if a member was added) that should be used to send an [opcode 28: dave_mls_commit_welcome](https://daveprotocol.com/#dave_mls_commit_welcome-28).
   /// @see https://daveprotocol.com/#dave_mls_proposals-27
   #[napi]
   pub fn process_proposals(&mut self, operation_type: ProposalsOperationType, proposals: Buffer) -> napi::Result<ProposalsResult> {
@@ -220,7 +251,7 @@ impl DaveSession {
 
     let group = self.group.as_mut().unwrap();
 
-    println!("processing proposals, optype {:?}", operation_type);
+    debug!("Processing proposals, optype {:?}", operation_type);
 
     let proposals: Vec<u8> = VLBytes::tls_deserialize_exact_bytes(&proposals)
       .map_err(|err| Error::from_reason(format!("Error deserializing proposal vector: {err}")))?
@@ -248,9 +279,9 @@ impl DaveSession {
             if let Proposal::Add(add_proposal) = proposal.proposal() {
               let incoming_user_id = u64::from_be_bytes(
                 add_proposal.key_package().leaf_node().credential().serialized_content().try_into()
-                  .map_err(|err| Error::from_reason(format!("Failed to convert user id: {err}")))?
+                  .map_err(|err| Error::from_reason(format!("Failed to convert proposal user id: {err}")))?
               ).to_string();
-              println!("incoming user {:?}", incoming_user_id);
+              debug!("Adding proposal for user {:?}", incoming_user_id);
             }
             group
               .store_pending_proposal(self.provider.storage(), *proposal)
@@ -269,7 +300,7 @@ impl DaveSession {
       .commit_to_pending_proposals(&self.provider, &self.signer)
       .map_err(|err| Error::from_reason(format!("Error committing pending proposals: {err}")))?;
 
-    self.pending = false;
+    self.status = SessionStatus::AWAITING_COMMIT;
 
     let mut welcome_buffer: Option<Buffer> = None;
 
@@ -303,16 +334,18 @@ impl DaveSession {
 
   /// Process a welcome message.
   /// @param welcome The welcome message to process.
-  /// @see https://daveprotocol.com/#dave_mls_proposals-30
+  /// @see https://daveprotocol.com/#dave_mls_welcome-30
   #[napi]
   pub fn process_welcome(&mut self, welcome: Buffer) -> napi::Result<()> {
-    if self.group.is_some() && !self.pending {
+    if self.group.is_some() && self.status == SessionStatus::ACTIVE {
       return Err(Error::from_reason("Cannot process a welcome after being in an established group".to_owned()))
     }
 
     if self.external_sender.is_none() {
       return Err(Error::from_reason("Cannot process a welcome without an external sender".to_owned()))
     }
+  
+    debug!("Processing welcome");
 
     let mls_group_config = MlsGroupJoinConfig::builder()
         .use_ratchet_tree_extension(true)
@@ -326,6 +359,20 @@ impl DaveSession {
     let staged_join = StagedWelcome::new_from_welcome(&self.provider, &mls_group_config, welcome, None)
       .map_err(|err| Error::from_reason(format!("Error constructing staged join: {err}")))?;
 
+    let external_senders = staged_join.group_context().extensions().external_senders();
+    if external_senders.is_none() {
+      return Err(Error::from_reason("Welcome is missing an external senders extension".to_owned()))
+    }
+
+    let external_senders = external_senders.unwrap();
+    if external_senders.len() != 1 {
+      return Err(Error::from_reason("Welcome lists an unexpected amount of external senders".to_owned()))
+    }
+
+    if external_senders.get(0).unwrap() != self.external_sender.as_ref().unwrap() {
+      return Err(Error::from_reason("Welcome lists an unexpected external sender".to_owned()))
+    }
+
     let group = staged_join
       .into_group(&self.provider)
       .map_err(|err| Error::from_reason(format!("Error joining group from staged welcome: {err}")))?;
@@ -336,7 +383,9 @@ impl DaveSession {
         .map_err(|err| Error::from_reason(format!("Error clearing pending group: {err}")))?;
     }
 
+    debug!("Welcomed to group successfully, our leaf index is {:?}, our epoch is {:?}", group.own_leaf_index().u32(), group.epoch().as_u64());
     self.group = Some(group);
+    self.status = SessionStatus::ACTIVE;
 
     // after, send {"op":23,"d":{"transition_id":1}}
     Ok(())
@@ -344,16 +393,18 @@ impl DaveSession {
 
   /// Process a commit.
   /// @param commit The commit to process.
-  /// @see https://daveprotocol.com/#dave_mls_proposals-29
+  /// @see https://daveprotocol.com/#dave_mls_announce_commit_transition-29
   #[napi]
   pub fn process_commit(&mut self, commit: Buffer) -> napi::Result<()> {
     if self.group.is_none() {
       return Err(Error::from_reason("Cannot process commit without a group".to_owned()));
     }
 
-    if self.group.is_some() && self.pending {
+    if self.group.is_some() && self.status == SessionStatus::PENDING {
       return Err(Error::from_reason("Cannot process commit for a pending group".to_owned()))
     }
+  
+    debug!("Processing commit");
 
     let group = self.group.as_mut().unwrap();
 
@@ -365,12 +416,16 @@ impl DaveSession {
       .try_into_protocol_message()
       .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_owned()))?;
 
+    if protocol_message.group_id().as_slice() != self.group_id.as_slice() {
+      return Err(Error::from_reason("MLSMessage was for a different group".to_owned()))
+    }
+
     let processed_message_result = group
       .process_message(&self.provider, protocol_message);
 
     if processed_message_result.is_err() && ProcessMessageError::InvalidCommit(StageCommitError::OwnCommit) == *processed_message_result.as_ref().unwrap_err() {
       // This is our own commit, lets merge pending instead
-      println!("found own commit, merging pending instead");
+      debug!("Found own commit, merging pending commit instead.");
       group
         .merge_pending_commit(&self.provider)
         .map_err(|err| Error::from_reason(format!("Error merging pending commit: {err}")))?;
@@ -388,6 +443,9 @@ impl DaveSession {
         _ => return Err(Error::from_reason("ProcessedMessage is not a StagedCommitMessage".to_owned())),
       }
     }
+  
+    debug!("Commit processed successfully, our leaf index is {:?}, our epoch is {:?}", group.own_leaf_index().u32(), group.epoch().as_u64());
+    self.status = SessionStatus::ACTIVE;
 
     Ok(())
   }
@@ -407,7 +465,7 @@ impl DaveSession {
   }
 
   fn get_pairwise_fingerprint_internal(&self, version: u16, user_id: String) -> napi::Result<Vec<Vec<u8>>> {
-    if self.group.is_none() || self.pending {
+    if self.group.is_none() || self.status == SessionStatus::PENDING {
       return Err(Error::from_reason("Cannot get fingerprint without an established group".to_owned()))
     }
 
@@ -451,6 +509,9 @@ impl DaveSession {
   /// @ignore
   #[napi]
   pub fn to_string(&self) -> napi::Result<String> {
-    Ok(format!("DAVESession {{ protocolVersion: {}, userId: {}, channelId: {} }}", self.protocol_version()?, self.user_id()?, self.channel_id()?))
+    Ok(format!(
+      "DAVESession {{ protocolVersion: {}, userId: {}, channelId: {}, group_created: {}, status: {:?} }}",
+      self.protocol_version()?, self.user_id()?, self.channel_id()?, self.group.is_some(), self.status
+    ))
   }
 }

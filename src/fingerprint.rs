@@ -11,6 +11,7 @@ pub fn generate_key_fingerprint(version: u16, key: Buffer, user_id: String) -> n
   Ok(Buffer::from(result))
 }
 
+#[allow(dead_code)]
 #[napi(ts_return_type = "Promise<Buffer>")]
 fn generate_pairwise_fingerprint(version: u16, key_a: Buffer, user_id_a: String, key_b: Buffer, user_id_b: String) -> AsyncTask<AsyncPairwiseFingerprint> {
   AsyncTask::new(AsyncPairwiseFingerprint { version, key_a, user_id_a, key_b, user_id_b })

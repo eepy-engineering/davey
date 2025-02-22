@@ -13,6 +13,14 @@ pub use session::*;
 mod fingerprint;
 pub use fingerprint::*;
 
+// This enables debubg statements on debug builds.
+#[cfg(debug_assertions)]
+#[module_exports]
+fn init(mut _exports: napi::JsObject) -> napi::Result<()> {
+	env_logger::Builder::new().filter_level(log::LevelFilter::Debug).init();
+  Ok(())
+}
+
 #[napi(object)]
 pub struct SigningKeyPair {
 	pub private: Buffer,
