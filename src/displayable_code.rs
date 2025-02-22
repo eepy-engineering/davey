@@ -30,8 +30,7 @@ pub fn generate_displayable_code(
   }
 
   let group_modulus: u64 = 10u64.pow(group_size);
-
-  let mut result = String::new();
+  let mut result = String::with_capacity(desired_length as usize);
 
   for i in (0..desired_length).step_by(group_size as usize) {
     let mut group_value: u64 = 0;
