@@ -1,6 +1,6 @@
 import test from 'ava';
 
-import { generateSigningKeys } from '../index.js';
+import { generateSigningKeys } from '../index';
 
 test('returns valid keys', (t) => {
   const result = generateSigningKeys(2);

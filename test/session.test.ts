@@ -1,6 +1,6 @@
 import test from 'ava';
 
-import { DAVESession, SessionStatus } from '../index.js';
+import { DAVESession, SessionStatus } from '../index';
 
 test("new DAVESession() creates session successfully", (t) => {
   const session = new DAVESession(1, '158049329150427136', '927310423890473011');
