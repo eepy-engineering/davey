@@ -42,6 +42,6 @@ pub fn generate_signing_keys(ciphersuite: u16) -> napi::Result<SigningKeyPair> {
 				public: Buffer::from(signing_key.verifying_key().to_encoded_point(false).as_bytes())
 			})
 		}
-		_ => return Err(Error::from_reason("Unsupported signature scheme".to_owned())),
+		_ => return Err(Error::from_reason("Unsupported signature scheme".to_string())),
 	}
 }

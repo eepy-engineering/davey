@@ -1,5 +1,5 @@
 use std::array::TryFromSliceError;
-use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error};
+use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error, Status};
 use openmls::{group::*, prelude::{tls_codec::Serialize, *}};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -13,7 +13,7 @@ type DAVEProtocolVersion = u16;
 pub fn dave_protocol_version_to_ciphersuite(protocol_version: DAVEProtocolVersion) -> Result<Ciphersuite, Error> {
   match protocol_version {
     1 => Ok(Ciphersuite::MLS_128_DHKEMP256_AES128GCM_SHA256_P256),
-    _ => Err(Error::from_reason("Unsupported protocol version".to_owned())),
+    _ => Err(Error::from_reason("Unsupported protocol version".to_string())),
   }
 }
 
@@ -27,7 +27,7 @@ pub fn dave_protocol_version_to_capabilities(protocol_version: DAVEProtocolVersi
       .proposals(vec![])
       .credentials(vec![CredentialType::Basic])
       .build()),
-    _ => Err(Error::from_reason("Unsupported protocol version".to_owned())),
+    _ => Err(Error::from_reason("Unsupported protocol version".to_string())),
   }
 }
 
@@ -92,9 +92,9 @@ impl DaveSession {
   pub fn new(protocol_version: u16, user_id: String, channel_id: String) -> napi::Result<Self> {
     let ciphersuite = dave_protocol_version_to_ciphersuite(protocol_version)?;
     let credential = BasicCredential::new(user_id.parse::<u64>()
-      .map_err(|_| Error::from_reason("Invalid user id".to_owned()))?.to_be_bytes().into());
+      .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?.to_be_bytes().into());
     let group_id = GroupId::from_slice(&channel_id.parse::<u64>()
-      .map_err(|_| Error::from_reason("Invalid channel id".to_owned()))?.to_be_bytes());
+      .map_err(|_| Error::new(Status::InvalidArg, "Invalid channel id".to_string()))?.to_be_bytes());
     let signer = SignatureKeyPair::new(ciphersuite.signature_algorithm())
       .map_err(|err| Error::from_reason(format!("Error generating a signature key pair: {err}")))?;
     let credential_with_key = CredentialWithKey {
@@ -125,9 +125,9 @@ impl DaveSession {
   
     let ciphersuite = dave_protocol_version_to_ciphersuite(protocol_version)?;
     let credential = BasicCredential::new(user_id.parse::<u64>()
-      .map_err(|_| Error::from_reason("Invalid user id".to_owned()))?.to_be_bytes().into());
+      .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?.to_be_bytes().into());
     let group_id = GroupId::from_slice(&channel_id.parse::<u64>()
-      .map_err(|_| Error::from_reason("Invalid channel id".to_owned()))?.to_be_bytes());
+      .map_err(|_| Error::new(Status::InvalidArg, "Invalid channel id".to_string()))?.to_be_bytes());
     let signer = SignatureKeyPair::new(ciphersuite.signature_algorithm())
       .map_err(|err| Error::from_reason(format!("Error generating a signature key pair: {err}")))?;
     let credential_with_key = CredentialWithKey {
@@ -221,7 +221,7 @@ impl DaveSession {
   #[napi]
   pub fn get_epoch_authenticator(&self) -> napi::Result<Buffer> {
     if self.group.is_none() || self.status == SessionStatus::PENDING {
-      return Err(Error::from_reason("Cannot epoch authenticator without an established MLS group".to_owned()));
+      return Err(Error::from_reason("Cannot epoch authenticator without an established MLS group".to_string()));
     }
 
     Ok(Buffer::from(self.group.as_ref().unwrap().epoch_authenticator().as_slice()))
@@ -234,7 +234,7 @@ impl DaveSession {
   #[napi]
   pub fn set_external_sender(&mut self, external_sender_data: Buffer) -> napi::Result<()> {
     if self.status == SessionStatus::AWAITING_COMMIT || self.status == SessionStatus::ACTIVE {
-      return Err(Error::from_reason("Cannot set an external sender after joining an established group".to_owned()));
+      return Err(Error::from_reason("Cannot set an external sender after joining an established group".to_string()));
     }
 
     let external_sender = ExternalSender::tls_deserialize_exact_bytes(&external_sender_data)
@@ -280,7 +280,7 @@ impl DaveSession {
 
   fn create_pending_group(&mut self) -> napi::Result<()> {
     if self.external_sender.is_none() {
-      return Err(Error::from_reason("No external sender set".to_owned()));
+      return Err(Error::from_reason("No external sender set".to_string()));
     }
   
     let mls_group_create_config = MlsGroupCreateConfig::builder()
@@ -320,7 +320,7 @@ impl DaveSession {
   pub fn process_proposals(&mut self, operation_type: ProposalsOperationType, proposals: Buffer) -> napi::Result<ProposalsResult> {
     // TODO support revokes
     if self.group.is_none() {
-      return Err(Error::from_reason("Cannot process proposals without a group".to_owned()));
+      return Err(Error::from_reason("Cannot process proposals without a group".to_string()));
     }
 
     let group = self.group.as_mut().unwrap();
@@ -342,7 +342,7 @@ impl DaveSession {
   
         let protocol_message = mls_message
           .try_into_protocol_message()
-          .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_owned()))?;
+          .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_string()))?;
 
         let processed_message = group
           .process_message(&self.provider, protocol_message)
@@ -361,13 +361,13 @@ impl DaveSession {
               .store_pending_proposal(self.provider.storage(), *proposal)
               .map_err(|err| Error::from_reason(format!("Could not store proposal: {err}")))?;
           }
-          _ => return Err(Error::from_reason("ProcessedMessage is not a ProposalMessage".to_owned())),
+          _ => return Err(Error::from_reason("ProcessedMessage is not a ProposalMessage".to_string())),
         }
 
         commit_adds_members = true;
       }
     } else {
-      return Err(Error::from_reason("Revoked proposals not supported yet".to_owned()))
+      return Err(Error::from_reason("Revoked proposals not supported yet".to_string()))
     }
 
     let (commit, welcome, _group_info) = group
@@ -390,10 +390,10 @@ impl DaveSession {
                 )
               )
             },
-            _ => return Err(Error::from_reason("MLSMessage was not a Welcome".to_owned())),
+            _ => return Err(Error::from_reason("MLSMessage was not a Welcome".to_string())),
           }
         },
-        _ => return Err(Error::from_reason("Welcome was not returned when there are new members".to_owned())),
+        _ => return Err(Error::from_reason("Welcome was not returned when there are new members".to_string())),
       }
     }
 
@@ -412,11 +412,11 @@ impl DaveSession {
   #[napi]
   pub fn process_welcome(&mut self, welcome: Buffer) -> napi::Result<()> {
     if self.group.is_some() && self.status == SessionStatus::ACTIVE {
-      return Err(Error::from_reason("Cannot process a welcome after being in an established group".to_owned()))
+      return Err(Error::from_reason("Cannot process a welcome after being in an established group".to_string()))
     }
 
     if self.external_sender.is_none() {
-      return Err(Error::from_reason("Cannot process a welcome without an external sender".to_owned()))
+      return Err(Error::from_reason("Cannot process a welcome without an external sender".to_string()))
     }
   
     debug!("Processing welcome");
@@ -434,16 +434,16 @@ impl DaveSession {
 
     let external_senders = staged_join.group_context().extensions().external_senders();
     if external_senders.is_none() {
-      return Err(Error::from_reason("Welcome is missing an external senders extension".to_owned()))
+      return Err(Error::from_reason("Welcome is missing an external senders extension".to_string()))
     }
 
     let external_senders = external_senders.unwrap();
     if external_senders.len() != 1 {
-      return Err(Error::from_reason("Welcome lists an unexpected amount of external senders".to_owned()))
+      return Err(Error::from_reason("Welcome lists an unexpected amount of external senders".to_string()))
     }
 
     if external_senders.get(0).unwrap() != self.external_sender.as_ref().unwrap() {
-      return Err(Error::from_reason("Welcome lists an unexpected external sender".to_owned()))
+      return Err(Error::from_reason("Welcome lists an unexpected external sender".to_string()))
     }
 
     let group = staged_join
@@ -470,11 +470,11 @@ impl DaveSession {
   #[napi]
   pub fn process_commit(&mut self, commit: Buffer) -> napi::Result<()> {
     if self.group.is_none() {
-      return Err(Error::from_reason("Cannot process commit without a group".to_owned()));
+      return Err(Error::from_reason("Cannot process commit without a group".to_string()));
     }
 
     if self.group.is_some() && self.status == SessionStatus::PENDING {
-      return Err(Error::from_reason("Cannot process commit for a pending group".to_owned()))
+      return Err(Error::from_reason("Cannot process commit for a pending group".to_string()))
     }
   
     debug!("Processing commit");
@@ -487,10 +487,10 @@ impl DaveSession {
 
     let protocol_message = mls_message
       .try_into_protocol_message()
-      .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_owned()))?;
+      .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_string()))?;
 
     if protocol_message.group_id().as_slice() != self.group_id.as_slice() {
-      return Err(Error::from_reason("MLSMessage was for a different group".to_owned()))
+      return Err(Error::from_reason("MLSMessage was for a different group".to_string()))
     }
 
     let processed_message_result = group
@@ -513,7 +513,7 @@ impl DaveSession {
             .merge_staged_commit(&self.provider, *staged_commit)
             .map_err(|err| Error::from_reason(format!("Could not stage commit: {err}")))?;
         }
-        _ => return Err(Error::from_reason("ProcessedMessage is not a StagedCommitMessage".to_owned())),
+        _ => return Err(Error::from_reason("ProcessedMessage is not a StagedCommitMessage".to_string())),
       }
     }
   
@@ -539,7 +539,7 @@ impl DaveSession {
 
   fn get_pairwise_fingerprint_internal(&self, version: u16, user_id: String) -> napi::Result<Vec<Vec<u8>>> {
     if self.group.is_none() || self.status == SessionStatus::PENDING {
-      return Err(Error::from_reason("Cannot get fingerprint without an established group".to_owned()))
+      return Err(Error::from_reason("Cannot get fingerprint without an established group".to_string()))
     }
 
     let our_uid = 
@@ -549,7 +549,7 @@ impl DaveSession {
       );
 
     let their_uid = user_id.parse::<u64>()
-      .map_err(|_| Error::from_reason("Invalid user id".to_owned()))?;
+      .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?;
 
     let member = self.group.as_ref().unwrap().members().find(|member| {
       let uid = u64::from_be_bytes(
@@ -559,7 +559,7 @@ impl DaveSession {
     });
 
     if member.is_none() {
-      return Err(Error::from_reason("Cannot find member in group".to_owned()))
+      return Err(Error::from_reason("Cannot find member in group".to_string()))
     }
 
     let member = member.unwrap();
