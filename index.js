@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { DAVE_PROTOCOL_VERSION, ProposalsOperationType, SessionStatus, DAVESession, generateKeyFingerprint, generatePairwiseFingerprint, generateSigningKeys } = nativeBinding
+const { DAVE_PROTOCOL_VERSION, ProposalsOperationType, SessionStatus, DAVESession, generateKeyFingerprint, generatePairwiseFingerprint, generateDisplayableCode, generateSigningKeys } = nativeBinding
 
 module.exports.DAVE_PROTOCOL_VERSION = DAVE_PROTOCOL_VERSION
 module.exports.ProposalsOperationType = ProposalsOperationType
@@ -318,4 +318,5 @@ module.exports.SessionStatus = SessionStatus
 module.exports.DAVESession = DAVESession
 module.exports.generateKeyFingerprint = generateKeyFingerprint
 module.exports.generatePairwiseFingerprint = generatePairwiseFingerprint
+module.exports.generateDisplayableCode = generateDisplayableCode
 module.exports.generateSigningKeys = generateSigningKeys

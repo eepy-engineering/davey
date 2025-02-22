@@ -21,6 +21,7 @@ export interface ProposalsResult {
 }
 export declare function generateKeyFingerprint(version: number, key: Buffer, userId: string): Buffer
 export declare function generatePairwiseFingerprint(version: number, keyA: Buffer, userIdA: string, keyB: Buffer, userIdB: string): Promise<Buffer>
+export declare function generateDisplayableCode(data: Buffer, desiredLength: number, groupSize: number): string
 export interface SigningKeyPair {
   private: Buffer
   public: Buffer
