@@ -14,10 +14,10 @@ barplot(() => {
   });
 });
 
-// generateKeyFingerprint
+// generatePairwiseFingerprint
 barplot(() => {
   summary(() => {
-    bench('@snazzah/davey/generateKeyFingerprint',
+    bench('@snazzah/davey/generatePairwiseFingerprint',
       async () => do_not_optimize(
         await generatePairwiseFingerprint(0, Buffer.alloc(33), '1234', Buffer.alloc(65), '5678')
       )
