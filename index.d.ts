@@ -28,7 +28,24 @@ export interface SigningKeyPair {
 export declare function generateSigningKeys(ciphersuite: number): SigningKeyPair
 export type DaveSession = DAVESession
 export declare class DAVESession {
+  /**
+   * @param protocolVersion The protocol version to use.
+   * @param userId The user ID of the session.
+   * @param channelId The channel ID of the session.
+   */
   constructor(protocolVersion: number, userId: string, channelId: string)
+  /**
+   * Resets and re-initializes the session.
+   * @param protocolVersion The protocol version to use.
+   * @param userId The user ID of the session.
+   * @param channelId The channel ID of the session.
+   */
+  reinit(protocolVersion: number, userId: string, channelId: string): void
+  /**
+   * Resets the session by deleting the group and clearing the storage.
+   * If you want to re-initialize the session, use {@link reinit}.
+   */
+  reset(): void
   /** The DAVE protocol version used for this session. */
   get protocolVersion(): number
   /** The user ID for this session. */
@@ -55,11 +72,6 @@ export declare class DAVESession {
    * Key packages are not meant to be reused, and will be recreated on each call of this function.
    */
   getSerializedKeyPackage(): Buffer
-  /**
-   * Create a pending group that may recieve proposals.
-   * You must use {@link getSerializedKeyPackage} and {@link setExternalSender} before using this function.
-   */
-  createPendingGroup(): void
   /**
    * Process proposals from an opcode 27 payload.
    * @param operationType The operation type of the proposals.

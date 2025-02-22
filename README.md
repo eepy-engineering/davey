@@ -10,3 +10,4 @@ Getting DAVE protocol to work in Node environments.
 - [discord/libdave](https://github.com/discord/libdave)
 - [Discord Dev Docs - Voice - E2EE](https://discord.com/developers/docs/topics/voice-connections#endtoend-encryption-dave-protocol)
 - [NAPI-RS](https://napi.rs/docs/introduction/getting-started)
+- [OpenMLS Book](https://book.openmls.tech/introduction.html)

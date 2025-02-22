@@ -81,10 +81,13 @@ pub struct DaveSession {
   status: SessionStatus
 }
 
-// TODO make the session resettable (except external sender, like in libdave)
- 
+// TODO allow for specifying a signing key
+
 #[napi]
 impl DaveSession {
+  /// @param protocolVersion The protocol version to use.
+  /// @param userId The user ID of the session.
+  /// @param channelId The channel ID of the session.
   #[napi(constructor)]
   pub fn new(protocol_version: u16, user_id: String, channel_id: String) -> napi::Result<Self> {
     let ciphersuite = dave_protocol_version_to_ciphersuite(protocol_version)?;
@@ -110,6 +113,62 @@ impl DaveSession {
       group: None,
       status: SessionStatus::INACTIVE
     })
+  }
+
+  /// Resets and re-initializes the session.
+  /// @param protocolVersion The protocol version to use.
+  /// @param userId The user ID of the session.
+  /// @param channelId The channel ID of the session.
+  #[napi]
+  pub fn reinit(&mut self, protocol_version: u16, user_id: String, channel_id: String) -> napi::Result<()> {
+    self.reset()?;
+  
+    let ciphersuite = dave_protocol_version_to_ciphersuite(protocol_version)?;
+    let credential = BasicCredential::new(user_id.parse::<u64>()
+      .map_err(|_| Error::from_reason("Invalid user id".to_owned()))?.to_be_bytes().into());
+    let group_id = GroupId::from_slice(&channel_id.parse::<u64>()
+      .map_err(|_| Error::from_reason("Invalid channel id".to_owned()))?.to_be_bytes());
+    let signer = SignatureKeyPair::new(ciphersuite.signature_algorithm())
+      .map_err(|err| Error::from_reason(format!("Error generating a signature key pair: {err}")))?;
+    let credential_with_key = CredentialWithKey {
+      credential: credential.into(),
+      signature_key: signer.public().into(),
+    };
+
+    self.protocol_version = protocol_version;
+    self.ciphersuite = ciphersuite;
+    self.group_id = group_id;
+    self.signer = signer;
+    self.credential_with_key = credential_with_key;
+
+    if self.external_sender.is_some() {
+      self.create_pending_group()?;
+    }
+
+    Ok(())
+  }
+
+  /// Resets the session by deleting the group and clearing the storage.
+  /// If you want to re-initialize the session, use {@link reinit}.
+  #[napi]
+  pub fn reset(&mut self) -> napi::Result<()> {
+    debug!("Resetting MLS session");
+
+    // Delete group
+    if self.group.is_some() {
+      self.group.take().unwrap()
+        .delete(self.provider.storage())
+        .map_err(|err| Error::from_reason(format!("Error clearing group: {err}")))?;
+    }
+    
+    // Clear storage
+    self.provider.storage().values.write()
+      .map_err(|err| Error::from_reason(format!("MemoryStorage error: {err}")))?
+      .clear();
+
+    self.status = SessionStatus::INACTIVE;
+
+    Ok(())
   }
 
   /// The DAVE protocol version used for this session.
@@ -184,6 +243,8 @@ impl DaveSession {
     self.external_sender = Some(external_sender);
     debug!("External sender set.");
 
+    self.create_pending_group()?;
+
     Ok(())
   }
 
@@ -217,18 +278,10 @@ impl DaveSession {
     Ok(Buffer::from(buffer))
   }
 
-  // TODO probably automatically do this instead while doing setExternalSender() (and also on reinit) like in libdave
-  /// Create a pending group that may recieve proposals.
-  /// You must use {@link getSerializedKeyPackage} and {@link setExternalSender} before using this function.
-  #[napi]
-  pub fn create_pending_group(&mut self) -> napi::Result<()> {
+  fn create_pending_group(&mut self) -> napi::Result<()> {
     if self.external_sender.is_none() {
       return Err(Error::from_reason("No external sender set".to_owned()));
     }
-
-    // if self.items_in_storage()? == 0 {
-    //   return Err(Error::from_reason("Creating a pending group requires a key package".to_owned()));
-    // }
   
     let mls_group_create_config = MlsGroupCreateConfig::builder()
       .with_group_context_extensions(Extensions::single(Extension::ExternalSenders(vec![self.external_sender.clone().unwrap()])))
@@ -376,7 +429,6 @@ impl DaveSession {
     let welcome = Welcome::tls_deserialize_exact_bytes(&welcome)
       .map_err(|err| Error::from_reason(format!("Error deserializing welcome: {err}")))?;
 
-    // TODO potential problems: storage for groups may clash & key package is consumed from this (this might just be fine honestly)
     let staged_join = StagedWelcome::new_from_welcome(&self.provider, &mls_group_config, welcome, None)
       .map_err(|err| Error::from_reason(format!("Error constructing staged join: {err}")))?;
 
