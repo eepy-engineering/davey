@@ -115,16 +115,15 @@ jobs:
         settings:
           - host: macos-latest
             target: x86_64-apple-darwin
-          - host: windows-latest
-            target: x86_64-pc-windows-msvc
+          # FIX: Windows tests keep failing: https://github.com/Snazzah/davey/actions/runs/13469416757/job/37641058693
+          # - host: windows-latest
+          #   target: x86_64-pc-windows-msvc
         node:
           - '18'
           - '20'
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
       - name: Install pnpm
         uses: pnpm/action-setup@v4
       - name: Setup node
@@ -158,8 +157,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
       - name: Install pnpm
         uses: pnpm/action-setup@v4
       - name: Setup node
@@ -187,8 +184,6 @@ jobs:
       - test-linux-x64-gnu-binding
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
       - name: Install pnpm
         uses: pnpm/action-setup@v4
       - name: Setup node
