@@ -25,18 +25,39 @@
   "license": "MIT",
   "devDependencies": {
     "@napi-rs/cli": "^2.18.4",
-    "@types/bun": "^1.2.2"
+    "@swc-node/register": "^1.10.9",
+    "@swc/core": "^1.10.18",
+    "@types/node": "^22.13.5",
+    "ava": "^6.2.0"
   },
   "engines": {
     "node": ">= 10"
+  },
+  "ava": {
+    "extensions": {
+      "ts": "module"
+    },
+    "files": [
+      "test/**/*"
+    ],
+    "timeout": "2m",
+    "workerThreads": false,
+    "environmentVariables": {
+      "TS_NODE_PROJECT": "./tsconfig.json"
+    },
+    "nodeArguments": [
+      "--import",
+      "@swc-node/register/esm-register"
+    ]
   },
   "scripts": {
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
     "prepublishOnly": "napi prepublish -t npm",
-    "test": "bun test ./test/*.mts",
+    "test": "ava",
     "universal": "napi universal",
     "version": "napi version"
-  }
+  },
+  "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0"
 }

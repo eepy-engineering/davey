@@ -160,14 +160,20 @@ impl DaveSession {
 
   /// Set the external sender this session will recieve from.
   /// @param externalSenderData The serialized external sender data.
-  /// @throws Will throw if the external sender is invalid.
+  /// @throws Will throw if the external sender is invalid, or if the group has been established already.
   /// @see https://daveprotocol.com/#dave_mls_external_sender_package-25
   #[napi]
   pub fn set_external_sender(&mut self, external_sender_data: Buffer) -> napi::Result<()> {
+    if self.status == SessionStatus::AWAITING_COMMIT || self.status == SessionStatus::ACTIVE {
+      return Err(Error::from_reason("Cannot set an external sender after joining an established group".to_owned()));
+    }
+
     let external_sender = ExternalSender::tls_deserialize_exact_bytes(&external_sender_data)
       .map_err(|err| Error::from_reason(format!("Failed to deserialize external sender: {err}")))?;
+
     self.external_sender = Some(external_sender);
     debug!("External sender set.");
+
     Ok(())
   }
 
@@ -201,6 +207,7 @@ impl DaveSession {
     Ok(Buffer::from(buffer))
   }
 
+  // TODO probably automatically do this instead while doing setExternalSender() (and also on reinit) like in libdave
   /// Create a pending group that may recieve proposals.
   /// You must use {@link getSerializedKeyPackage} and {@link setExternalSender} before using this function.
   #[napi]
@@ -208,6 +215,10 @@ impl DaveSession {
     if self.external_sender.is_none() {
       return Err(Error::from_reason("No external sender set".to_owned()));
     }
+
+    // if self.items_in_storage()? == 0 {
+    //   return Err(Error::from_reason("Creating a pending group requires a key package".to_owned()));
+    // }
   
     let mls_group_create_config = MlsGroupCreateConfig::builder()
       .with_group_context_extensions(Extensions::single(Extension::ExternalSenders(vec![self.external_sender.clone().unwrap()])))
