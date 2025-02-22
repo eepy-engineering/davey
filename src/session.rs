@@ -158,6 +158,16 @@ impl DaveSession {
     Ok(self.group.is_some())
   }
 
+  /// Get the epoch authenticator of this session's group.
+  #[napi]
+  pub fn get_epoch_authenticator(&self) -> napi::Result<Buffer> {
+    if self.group.is_none() || self.status == SessionStatus::PENDING {
+      return Err(Error::from_reason("Cannot epoch authenticator without an established MLS group".to_owned()));
+    }
+
+    Ok(Buffer::from(self.group.as_ref().unwrap().epoch_authenticator().as_slice()))
+  }
+
   /// Set the external sender this session will recieve from.
   /// @param externalSenderData The serialized external sender data.
   /// @throws Will throw if the external sender is invalid, or if the group has been established already.

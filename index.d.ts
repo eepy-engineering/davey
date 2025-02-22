@@ -41,10 +41,12 @@ export declare class DAVESession {
   get status(): SessionStatus
   /** Whether this session's group was created. */
   get groupCreated(): boolean
+  /** Get the epoch authenticator of this session's group. */
+  getEpochAuthenticator(): Buffer
   /**
    * Set the external sender this session will recieve from.
    * @param externalSenderData The serialized external sender data.
-   * @throws Will throw if the external sender is invalid.
+   * @throws Will throw if the external sender is invalid, or if the group has been established already.
    * @see https://daveprotocol.com/#dave_mls_external_sender_package-25
    */
   setExternalSender(externalSenderData: Buffer): void
