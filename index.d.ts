@@ -19,8 +19,20 @@ export interface ProposalsResult {
   commit: Buffer
   welcome?: Buffer
 }
+/**
+ * Generate a key fingerprint.
+ * @see https://daveprotocol.com/#verification-fingerprint
+ */
 export declare function generateKeyFingerprint(version: number, key: Buffer, userId: string): Buffer
+/**
+ * Generate a pairwise fingerprint.
+ * @see https://daveprotocol.com/#verification-fingerprint
+ */
 export declare function generatePairwiseFingerprint(version: number, keyA: Buffer, userIdA: string, keyB: Buffer, userIdB: string): Promise<Buffer>
+/**
+ * Generate a displayable code.
+ * @see https://daveprotocol.com/#displayable-codes
+ */
 export declare function generateDisplayableCode(data: Buffer, desiredLength: number, groupSize: number): string
 export interface SigningKeyPair {
   private: Buffer
@@ -94,10 +106,23 @@ export declare class DAVESession {
    */
   processCommit(commit: Buffer): void
   /**
+   * Get the Voice Privacy Code of the session.
+   * This is the equivalent of `generateDisplayableCode(epochAuthenticator, 30, 5)`.
+   * @see https://daveprotocol.com/#displayable-codes
+   */
+  getVoicePrivacyCode(): string
+  /**
+   * Get the verification code of another member of the group.
+   * This is the equivalent of `generateDisplayableCode(getPairwiseFingerprint(0, userId), 45, 5)`.
+   * @see https://daveprotocol.com/#displayable-codes
+   */
+  getVerificationCode(userId: string): Promise<Buffer>
+  /**
    * Create a pairwise fingerprint of you and another member.
    * @see https://daveprotocol.com/#verification-fingerprint
    */
   getPairwiseFingerprint(version: number, userId: string): Promise<Buffer>
+  /** The amount of items in memory storage. */
   get itemsInStorage(): number
   /** @ignore */
   toString(): string

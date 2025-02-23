@@ -5,7 +5,7 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use log::debug;
 
-use crate::AsyncPairwiseFingerprintSession;
+use crate::{generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode};
 
 type DAVEProtocolVersion = u16;
 
@@ -523,6 +523,35 @@ impl DaveSession {
     Ok(())
   }
 
+  /// Get the Voice Privacy Code of the session.
+  /// This is the equivalent of `generateDisplayableCode(epochAuthenticator, 30, 5)`.
+  /// @see https://daveprotocol.com/#displayable-codes
+  #[napi]
+  pub fn get_voice_privacy_code(&self) -> napi::Result<String> {
+    if self.group.is_none() || self.status == SessionStatus::PENDING {
+      return Err(Error::from_reason("Cannot epoch authenticator without an established MLS group".to_string()));
+    }
+
+    let epoch_authenticator = self.group.as_ref().unwrap().epoch_authenticator();
+
+    Ok(generate_displayable_code_internal(epoch_authenticator.as_slice(), 30, 5)?)
+  }
+
+  /// Get the verification code of another member of the group.
+  /// This is the equivalent of `generateDisplayableCode(getPairwiseFingerprint(0, userId), 45, 5)`.
+  /// @see https://daveprotocol.com/#displayable-codes
+  #[napi(ts_return_type = "Promise<Buffer>")]
+  pub fn get_verification_code(&self, user_id: String) -> AsyncTask<AsyncSessionVerificationCode> {
+    let result = self.get_pairwise_fingerprint_internal(0, user_id);
+    let (ok, err) = {
+      match result {
+        Ok(value) => (Some(value), None),
+        Err(err) => (None, Some(err)),
+      }
+    };
+    AsyncTask::new(AsyncSessionVerificationCode { fingerprints: ok, error: err })
+  }
+
   /// Create a pairwise fingerprint of you and another member.
   /// @see https://daveprotocol.com/#verification-fingerprint
   #[napi(ts_return_type = "Promise<Buffer>")]
@@ -572,6 +601,7 @@ impl DaveSession {
     Ok(fingerprints)
   }
 
+  /// The amount of items in memory storage.
   #[napi(getter)]
   pub fn items_in_storage(&self) -> napi::Result<i32> {
     let map_read_guard = self.provider.storage().values.read()

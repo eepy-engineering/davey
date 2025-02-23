@@ -1,8 +1,12 @@
 use napi::{bindgen_prelude::{AsyncTask, Buffer}, Env, Error, Task};
 use scrypt::{scrypt, Params};
 
+use crate::generate_displayable_code_internal;
+
 const FINGERPRINT_SALT: [u8; 16] = [0x24, 0xca, 0xb1, 0x7a, 0x7a, 0xf8, 0xec, 0x2b, 0x82, 0xb4, 0x12, 0xb9, 0x2d, 0xab, 0x19, 0x2e];
 
+/// Generate a key fingerprint.
+/// @see https://daveprotocol.com/#verification-fingerprint
 #[napi]
 pub fn generate_key_fingerprint(version: u16, key: Buffer, user_id: String) -> napi::Result<Buffer> {
   let user_id = user_id.parse::<u64>()
@@ -11,6 +15,8 @@ pub fn generate_key_fingerprint(version: u16, key: Buffer, user_id: String) -> n
   Ok(Buffer::from(result))
 }
 
+/// Generate a pairwise fingerprint.
+/// @see https://daveprotocol.com/#verification-fingerprint
 #[allow(dead_code)]
 #[napi(ts_return_type = "Promise<Buffer>")]
 fn generate_pairwise_fingerprint(version: u16, key_a: Buffer, user_id_a: String, key_b: Buffer, user_id_b: String) -> AsyncTask<AsyncPairwiseFingerprint> {
@@ -116,5 +122,34 @@ impl Task for AsyncPairwiseFingerprintSession {
  
   fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
     Ok(Buffer::from(output))
+  }
+}
+
+pub struct AsyncSessionVerificationCode {
+  pub fingerprints: Option<Vec<Vec<u8>>>,
+  pub error: Option<Error>
+}
+ 
+impl Task for AsyncSessionVerificationCode {
+  type Output = String;
+  type JsValue = String;
+ 
+  fn compute(&mut self) -> napi::Result<Self::Output> {
+    if self.error.is_some() {
+      return Err(self.error.clone().unwrap())
+    }
+
+    if self.fingerprints.is_none() {
+      return Err(Error::from_reason("Invalid fingerprints".to_owned()))
+    }
+
+    let output = pairwise_fingerprints_internal(self.fingerprints.clone().unwrap())?;
+    let code = generate_displayable_code_internal(&output, 45, 5)?;
+
+    Ok(code)
+  }
+ 
+  fn resolve(&mut self, _env: Env, output: Self::Output) -> napi::Result<Self::JsValue> {
+    Ok(output)
   }
 }
