@@ -1,4 +1,5 @@
 import test from 'ava';
+import crypto from 'node:crypto';
 
 import { generateDisplayableCode } from '../index';
 
@@ -17,8 +18,7 @@ test('throws on invalid arguments', (t) => {
   const goodData = Buffer.from([0xaa, 0xbb, 0xcc, 0xdd]);
   t.throws(() => generateDisplayableCode(goodData, 4, 3));
 
-  const randomData = new Uint8Array(1024);
-  globalThis.crypto.getRandomValues(randomData);
+  const randomData = crypto.getRandomValues(new Uint8Array(1024));
   t.throws(() => generateDisplayableCode(Buffer.from(randomData), 1024, 11));
 });
 
