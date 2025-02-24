@@ -18,7 +18,7 @@ pub use displayable_code::*;
 
 mod cryptor;
 
-// This enables debubg statements on debug builds.
+// This enables debug statements on debug builds.
 #[cfg(debug_assertions)]
 #[module_exports]
 fn init(mut _exports: napi::JsObject) -> napi::Result<()> {
