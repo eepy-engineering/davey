@@ -1,11 +1,11 @@
-use std::array::TryFromSliceError;
+use std::{array::TryFromSliceError, sync::Arc};
 use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error, Status};
 use openmls::{group::*, prelude::{tls_codec::Serialize, *}};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use log::debug;
 
-use crate::{generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode};
+use crate::{cryptor::hash_ratchet::HashRatchet, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode};
 
 type DAVEProtocolVersion = u16;
 const USER_MEDIA_KEY_BASE_LABEL: &str = "Discord Secure Frames v0";
@@ -71,7 +71,7 @@ pub struct ProposalsResult {
 #[napi(js_name = "DAVESession")]
 pub struct DaveSession {
   protocol_version: DAVEProtocolVersion,
-  provider: OpenMlsRustCrypto,
+  provider: Arc<OpenMlsRustCrypto>,
   ciphersuite: Ciphersuite,
   group_id: GroupId,
   signer: SignatureKeyPair,
@@ -106,7 +106,7 @@ impl DaveSession {
     Ok(DaveSession {
       protocol_version,
       ciphersuite,
-      provider: OpenMlsRustCrypto::default(),
+      provider: Arc::new(OpenMlsRustCrypto::default()),
       group_id,
       signer,
       credential_with_key,
@@ -268,7 +268,7 @@ impl DaveSession {
         .key_package_extensions(Extensions::empty())
         .leaf_node_capabilities(dave_protocol_version_to_capabilities(self.protocol_version).unwrap())
         .key_package_lifetime(lifetime)
-        .build(self.ciphersuite, &self.provider, &self.signer, self.credential_with_key.clone())
+        .build(self.ciphersuite, self.provider.as_ref(), &self.signer, self.credential_with_key.clone())
         .map_err(|err| Error::from_reason(format!("Error creating key package: {err}")))?;
 
     let buffer = key_package.key_package().tls_serialize_detached()
@@ -294,7 +294,7 @@ impl DaveSession {
       .build();
 
     let group = MlsGroup::new_with_group_id(
-        &self.provider,
+        self.provider.as_ref(),
         &self.signer,
         &mls_group_create_config,
         self.group_id.clone(),
@@ -302,7 +302,6 @@ impl DaveSession {
       )
       .map_err(|err| Error::from_reason(format!("Error creating a group: {err}")))?;
 
-    // group.delete(self.provider.storage());
     self.group = Some(group);
     self.status = SessionStatus::PENDING;
 
@@ -346,7 +345,7 @@ impl DaveSession {
           .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_string()))?;
 
         let processed_message = group
-          .process_message(&self.provider, protocol_message)
+          .process_message(self.provider.as_ref(), protocol_message)
           .map_err(|err| Error::from_reason(format!("Could not process message: {err}")))?;
 
         match processed_message.into_content() {
@@ -372,7 +371,7 @@ impl DaveSession {
     }
 
     let (commit, welcome, _group_info) = group
-      .commit_to_pending_proposals(&self.provider, &self.signer)
+      .commit_to_pending_proposals(self.provider.as_ref(), &self.signer)
       .map_err(|err| Error::from_reason(format!("Error committing pending proposals: {err}")))?;
 
     self.status = SessionStatus::AWAITING_COMMIT;
@@ -430,7 +429,7 @@ impl DaveSession {
     let welcome = Welcome::tls_deserialize_exact_bytes(&welcome)
       .map_err(|err| Error::from_reason(format!("Error deserializing welcome: {err}")))?;
 
-    let staged_join = StagedWelcome::new_from_welcome(&self.provider, &mls_group_config, welcome, None)
+    let staged_join = StagedWelcome::new_from_welcome(self.provider.as_ref(), &mls_group_config, welcome, None)
       .map_err(|err| Error::from_reason(format!("Error constructing staged join: {err}")))?;
 
     let external_senders = staged_join.group_context().extensions().external_senders();
@@ -448,7 +447,7 @@ impl DaveSession {
     }
 
     let group = staged_join
-      .into_group(&self.provider)
+      .into_group(self.provider.as_ref())
       .map_err(|err| Error::from_reason(format!("Error joining group from staged welcome: {err}")))?;
 
     if self.group.is_some() {
@@ -495,13 +494,13 @@ impl DaveSession {
     }
 
     let processed_message_result = group
-      .process_message(&self.provider, protocol_message);
+      .process_message(self.provider.as_ref(), protocol_message);
 
     if processed_message_result.is_err() && ProcessMessageError::InvalidCommit(StageCommitError::OwnCommit) == *processed_message_result.as_ref().unwrap_err() {
       // This is our own commit, lets merge pending instead
       debug!("Found own commit, merging pending commit instead.");
       group
-        .merge_pending_commit(&self.provider)
+        .merge_pending_commit(self.provider.as_ref())
         .map_err(|err| Error::from_reason(format!("Error merging pending commit: {err}")))?;
     } else {
       // Someone elses commit, go through the usual stuff
@@ -511,7 +510,7 @@ impl DaveSession {
       match processed_message.into_content() {
         ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
           group
-            .merge_staged_commit(&self.provider, *staged_commit)
+            .merge_staged_commit(self.provider.as_ref(), *staged_commit)
             .map_err(|err| Error::from_reason(format!("Could not stage commit: {err}")))?;
         }
         _ => return Err(Error::from_reason("ProcessedMessage is not a StagedCommitMessage".to_string())),
@@ -612,8 +611,10 @@ impl DaveSession {
       .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?
       .to_le_bytes();
 
-    let base_secret = self.group.as_ref().unwrap().export_secret(&self.provider, USER_MEDIA_KEY_BASE_LABEL, &le_user_id, 16)
+    let base_secret = self.group.as_ref().unwrap().export_secret(self.provider.as_ref(), USER_MEDIA_KEY_BASE_LABEL, &le_user_id, 16)
       .map_err(|err| Error::from_reason(format!("Failed to export secret: {err}")))?;
+
+    let hash_ratchet = HashRatchet::new(&base_secret, self.provider.clone(), self.ciphersuite);
 
     todo!();
   }
