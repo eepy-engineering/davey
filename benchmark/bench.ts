@@ -8,7 +8,7 @@ summary(() => {
     () => do_not_optimize(generateKeyFingerprint(0, Buffer.alloc(33), '1234'))
   ).gc('inner');
   bench('libdave/generateKeyFingerprint',
-    () => do_not_optimize(libdave_generateKeyFingerprint(0, new Uint8Array(33), '1234'))
+    async() => do_not_optimize(await libdave_generateKeyFingerprint(0, new Uint8Array(33), '1234'))
   ).gc('inner');
 });
 

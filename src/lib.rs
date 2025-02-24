@@ -16,6 +16,8 @@ pub use fingerprint::*;
 mod displayable_code;
 pub use displayable_code::*;
 
+mod cryptor;
+
 // This enables debubg statements on debug builds.
 #[cfg(debug_assertions)]
 #[module_exports]

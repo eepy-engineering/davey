@@ -8,6 +8,7 @@ use log::debug;
 use crate::{generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode};
 
 type DAVEProtocolVersion = u16;
+const USER_MEDIA_KEY_BASE_LABEL: &str = "Discord Secure Frames v0";
 
 /// Gets the [`Ciphersuite`] for a [`DAVEProtocolVersion`].
 pub fn dave_protocol_version_to_ciphersuite(protocol_version: DAVEProtocolVersion) -> Result<Ciphersuite, Error> {
@@ -599,6 +600,22 @@ impl DaveSession {
     ];
 
     Ok(fingerprints)
+  }
+
+  /// @see https://daveprotocol.com/#sender-key-derivation
+  pub fn get_key_ratchet(&self, user_id: String) -> napi::Result<()> {
+    if self.group.is_none() || self.status == SessionStatus::PENDING {
+      return Err(Error::from_reason("Cannot get key ratchet without an established group".to_string()))
+    }
+
+    let le_user_id = user_id.parse::<u64>()
+      .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?
+      .to_le_bytes();
+
+    let base_secret = self.group.as_ref().unwrap().export_secret(&self.provider, USER_MEDIA_KEY_BASE_LABEL, &le_user_id, 16)
+      .map_err(|err| Error::from_reason(format!("Failed to export secret: {err}")))?;
+
+    todo!();
   }
 
   /// The amount of items in memory storage.
