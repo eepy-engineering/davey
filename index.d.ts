@@ -12,11 +12,11 @@ export const enum ProposalsOperationType {
 export const enum SessionStatus {
   INACTIVE = 0,
   PENDING = 1,
-  AWAITING_COMMIT = 2,
+  AWAITING_RESPONSE = 2,
   ACTIVE = 3
 }
 export interface ProposalsResult {
-  commit: Buffer
+  commit?: Buffer
   welcome?: Buffer
 }
 /**
@@ -89,7 +89,7 @@ export declare class DAVESession {
    * Process proposals from an opcode 27 payload.
    * @param operationType The operation type of the proposals.
    * @param proposals The vector of proposals or proposal refs of the payload. (depending on operation type)
-   * @returns A commit and a welcome (if a member was added) that should be used to send an [opcode 28: dave_mls_commit_welcome](https://daveprotocol.com/#dave_mls_commit_welcome-28).
+   * @returns A commit (if there were queued proposals) and a welcome (if a member was added) that should be used to send an [opcode 28: dave_mls_commit_welcome](https://daveprotocol.com/#dave_mls_commit_welcome-28) ONLY if a commit was returned.
    * @see https://daveprotocol.com/#dave_mls_proposals-27
    */
   processProposals(operationType: ProposalsOperationType, proposals: Buffer): ProposalsResult

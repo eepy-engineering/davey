@@ -1,9 +1,9 @@
 use std::{array::TryFromSliceError, sync::Arc};
 use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error, Status};
-use openmls::{group::*, prelude::{tls_codec::Serialize, *}};
+use openmls::{group::*, prelude::{hash_ref::ProposalRef, tls_codec::Serialize, *}};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
-use log::debug;
+use log::{debug, warn};
 
 use crate::{cryptor::hash_ratchet::HashRatchet, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode};
 
@@ -58,13 +58,13 @@ pub enum ProposalsOperationType {
 pub enum SessionStatus {
   INACTIVE = 0,
   PENDING = 1,
-  AWAITING_COMMIT = 2,
+  AWAITING_RESPONSE = 2,
   ACTIVE = 3
 }
 
 #[napi(object)]
 pub struct ProposalsResult {
-	pub commit: Buffer,
+	pub commit: Option<Buffer>,
 	pub welcome: Option<Buffer>,
 }
 
@@ -234,7 +234,7 @@ impl DaveSession {
   /// @see https://daveprotocol.com/#dave_mls_external_sender_package-25
   #[napi]
   pub fn set_external_sender(&mut self, external_sender_data: Buffer) -> napi::Result<()> {
-    if self.status == SessionStatus::AWAITING_COMMIT || self.status == SessionStatus::ACTIVE {
+    if self.status == SessionStatus::AWAITING_RESPONSE || self.status == SessionStatus::ACTIVE {
       return Err(Error::from_reason("Cannot set an external sender after joining an established group".to_string()));
     }
 
@@ -314,11 +314,10 @@ impl DaveSession {
   /// Process proposals from an opcode 27 payload.
   /// @param operationType The operation type of the proposals.
   /// @param proposals The vector of proposals or proposal refs of the payload. (depending on operation type)
-  /// @returns A commit and a welcome (if a member was added) that should be used to send an [opcode 28: dave_mls_commit_welcome](https://daveprotocol.com/#dave_mls_commit_welcome-28).
+  /// @returns A commit (if there were queued proposals) and a welcome (if a member was added) that should be used to send an [opcode 28: dave_mls_commit_welcome](https://daveprotocol.com/#dave_mls_commit_welcome-28) ONLY if a commit was returned.
   /// @see https://daveprotocol.com/#dave_mls_proposals-27
   #[napi]
   pub fn process_proposals(&mut self, operation_type: ProposalsOperationType, proposals: Buffer) -> napi::Result<ProposalsResult> {
-    // TODO support revokes
     if self.group.is_none() {
       return Err(Error::from_reason("Cannot process proposals without a group".to_string()));
     }
@@ -354,8 +353,23 @@ impl DaveSession {
               let incoming_user_id = u64::from_be_bytes(
                 add_proposal.key_package().leaf_node().credential().serialized_content().try_into()
                   .map_err(|err| Error::from_reason(format!("Failed to convert proposal user id: {err}")))?
-              ).to_string();
-              debug!("Adding proposal for user {:?}", incoming_user_id);
+              );
+              debug!("Storing add proposal for user {:?}", incoming_user_id.to_string());
+              commit_adds_members = true;
+            } else if let Proposal::Remove(remove_proposal) = proposal.proposal() {
+              let leaf_index = remove_proposal.removed();
+              let member = group.member(leaf_index);
+              let outgoing_user_id = {
+                if member.is_some() {
+                  u64::from_be_bytes(
+                    member.unwrap().serialized_content().try_into()
+                      .or::<TryFromSliceError>(Ok([0, 0, 0, 0, 0, 0, 0, 0])).unwrap()
+                  )
+                } else {
+                  0u64
+                }
+              };
+              debug!("Storing remove proposal for user {:?} (leaf index: {:?})", outgoing_user_id, leaf_index.u32());
             }
             group
               .store_pending_proposal(self.provider.storage(), *proposal)
@@ -363,18 +377,49 @@ impl DaveSession {
           }
           _ => return Err(Error::from_reason("ProcessedMessage is not a ProposalMessage".to_string())),
         }
-
-        commit_adds_members = true;
       }
     } else {
-      return Err(Error::from_reason("Revoked proposals not supported yet".to_string()))
+      let mut remaining_bytes: &[u8] = &proposals;
+      while remaining_bytes.len() != 0 {
+        let (proposal_ref, leftover) =
+          ProposalRef::tls_deserialize_bytes(&remaining_bytes)
+          .map_err(|err| Error::from_reason(format!("Error deserializing proposal ref: {err}")))?;
+        remaining_bytes = leftover;
+
+        debug!("Removing pending proposal {:?}", proposal_ref);
+        group.remove_pending_proposal(self.provider.storage(), &proposal_ref)
+          .map_err(|err| Error::from_reason(format!("Error revoking proposal: {err}")))?;
+      }
+    }
+
+    // Revert to previous state if there arent any more pending proposals
+    let queued_proposal = group.pending_proposals().next();
+    if queued_proposal.is_none() {
+      debug!("No proposals left to commit, reverting to previous state");
+      group.clear_pending_commit(self.provider.storage())
+        .map_err(|err| Error::from_reason(format!("Error removing previously pending commit: {err}")))?;
+      if self.status == SessionStatus::AWAITING_RESPONSE {
+        // FIXME should pending groups have revoked proposals and still be pending? id assume the voice server signals to recreate the group
+        self.status = SessionStatus::ACTIVE
+      }
+      return Ok(ProposalsResult {
+        commit: None,
+        welcome: None
+      })
+    }
+
+    // libdave seems to overwrite pendingGroupCommit_ and then not use it anywhere else...
+    if group.pending_commit().is_some() {
+      warn!("A pending commit was already created! Removing...");
+      group.clear_pending_commit(self.provider.storage())
+        .map_err(|err| Error::from_reason(format!("Error removing previously pending commit: {err}")))?;
     }
 
     let (commit, welcome, _group_info) = group
       .commit_to_pending_proposals(self.provider.as_ref(), &self.signer)
       .map_err(|err| Error::from_reason(format!("Error committing pending proposals: {err}")))?;
 
-    self.status = SessionStatus::AWAITING_COMMIT;
+    self.status = SessionStatus::AWAITING_RESPONSE;
 
     let mut welcome_buffer: Option<Buffer> = None;
 
@@ -401,7 +446,7 @@ impl DaveSession {
       .map_err(|err| Error::from_reason(format!("Error serializing commit: {err}")))?;
 
     Ok(ProposalsResult {
-      commit: Buffer::from(commit_buffer),
+      commit: Some(Buffer::from(commit_buffer)),
       welcome: welcome_buffer
     })
   }
@@ -460,7 +505,6 @@ impl DaveSession {
     self.group = Some(group);
     self.status = SessionStatus::ACTIVE;
 
-    // after, send {"op":23,"d":{"transition_id":1}}
     Ok(())
   }
 
