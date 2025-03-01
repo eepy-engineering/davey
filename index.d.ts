@@ -34,6 +34,19 @@ export declare function generatePairwiseFingerprint(version: number, keyA: Buffe
  * @see https://daveprotocol.com/#displayable-codes
  */
 export declare function generateDisplayableCode(data: Buffer, desiredLength: number, groupSize: number): string
+export const enum MediaType {
+  Audio = 0,
+  Video = 1
+}
+export const enum Codec {
+  Unknown = 0,
+  Opus = 1,
+  Vp8 = 2,
+  Vp9 = 3,
+  H264 = 4,
+  H265 = 5,
+  Av1 = 6
+}
 export interface SigningKeyPair {
   private: Buffer
   public: Buffer
@@ -74,6 +87,14 @@ export declare class DAVESession {
   /** Get the epoch authenticator of this session's group. */
   getEpochAuthenticator(): Buffer
   /**
+   * Get the voice privacy code of this session's group.
+   * The result of this is created and cached each time a new transition is executed.
+   * This is the equivalent of `generateDisplayableCode(epochAuthenticator, 30, 5)`.
+   * @returns The current voice privacy code, or an empty string if the session is not active.
+   * @see https://daveprotocol.com/#displayable-codes
+   */
+  get voicePrivacyCode(): string
+  /**
    * Set the external sender this session will recieve from.
    * @param externalSenderData The serialized external sender data.
    * @throws Will throw if the external sender is invalid, or if the group has been established already.
@@ -105,12 +126,6 @@ export declare class DAVESession {
    * @see https://daveprotocol.com/#dave_mls_announce_commit_transition-29
    */
   processCommit(commit: Buffer): void
-  /**
-   * Get the Voice Privacy Code of the session.
-   * This is the equivalent of `generateDisplayableCode(epochAuthenticator, 30, 5)`.
-   * @see https://daveprotocol.com/#displayable-codes
-   */
-  getVoicePrivacyCode(): string
   /**
    * Get the verification code of another member of the group.
    * This is the equivalent of `generateDisplayableCode(getPairwiseFingerprint(0, userId), 45, 5)`.

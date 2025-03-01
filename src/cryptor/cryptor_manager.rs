@@ -2,24 +2,11 @@ use std::{cmp::max, collections::{HashMap, VecDeque}, sync::{Arc, RwLock}, time:
 use log::{debug, trace, warn};
 use napi::Error;
 
-use super::{aead_cipher::AeadCipher, hash_ratchet::HashRatchet};
+use crate::cryptor::{CIPHER_EXPIRY, MAX_MISSING_NONCES};
 
-/** Layout constants */
-const AES_GCM_128_TRUNCATED_SYNC_NONCE_BYTES: u32 = 4;
-const RATCHET_GENERATION_BYTES: u32 = 1;
-// 8 * (AES_GCM_128_TRUNCATED_SYNC_NONCE_BYTES - RATCHET_GENERATION_BYTES)
-const RATCHET_GENERATION_SHIFT_BITS: u64 = 24;
+use super::{aead_cipher::AeadCipher, hash_ratchet::HashRatchet, *};
 
-/** Timing constants */
-const CIPHER_EXPIRY: Duration = Duration::new(10, 0);
-
-/** Behavior constants */
-const MAX_GENERATION_GAP: u32 = 250;
-const MAX_MISSING_NONCES: u64 = 1000;
-const GENERATION_WRAP: u32 = 1 << (8 * RATCHET_GENERATION_BYTES);
-const MAX_FRAMES_PER_SECOND: u64 = 50 + 2 * 60; // 50 audio frames + 2 * 60fps video streams
-
-fn compute_wrapped_generation(oldest: u32, generation: u32) -> u32 {
+pub fn compute_wrapped_generation(oldest: u32, generation: u32) -> u32 {
 	// Assume generation is greater than or equal to oldest, this may be wrong in a few cases but
 	// will be caught by the max generation gap check.
 	let remainder = oldest % GENERATION_WRAP;
@@ -80,7 +67,7 @@ impl CipherManager {
   }
 
   pub fn get_cipher(&mut self, generation: u32) -> Option<&AeadCipher> {
-    self.cleanup_expired_ciphers();
+    let _ = self.cleanup_expired_ciphers();
 
     if generation < self.oldest_generation {
       trace!("Received frame with old generation: {:?}, oldest generation: {:?}", generation, self.oldest_generation);
@@ -101,7 +88,6 @@ impl CipherManager {
     }
 
     if !self.cryptor_generations.contains_key(&generation) {
-      // FIXME probably not good to just throw out the error, but returning `None` is an internal fail anyway
       let ec_result = self.make_expiring_cipher(generation);
       if ec_result.is_err() {
         let err = ec_result.err().unwrap();

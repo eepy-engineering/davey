@@ -5,7 +5,7 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use log::{debug, warn};
 
-use crate::{cryptor::hash_ratchet::HashRatchet, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode};
+use crate::{cryptor::{encryptor::Encryptor, hash_ratchet::HashRatchet}, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode};
 
 type DAVEProtocolVersion = u16;
 const USER_MEDIA_KEY_BASE_LABEL: &str = "Discord Secure Frames v0";
@@ -79,7 +79,10 @@ pub struct DaveSession {
 
   external_sender: Option<ExternalSender>,
   group: Option<MlsGroup>,
-  status: SessionStatus
+  status: SessionStatus,
+
+  privacy_code: String,
+  encryptor: Encryptor,
 }
 
 // TODO allow for specifying a signing key
@@ -112,7 +115,9 @@ impl DaveSession {
       credential_with_key,
       external_sender: None,
       group: None,
-      status: SessionStatus::INACTIVE
+      status: SessionStatus::INACTIVE,
+      privacy_code: String::new(),
+      encryptor: Encryptor::new()
     })
   }
 
@@ -141,6 +146,8 @@ impl DaveSession {
     self.group_id = group_id;
     self.signer = signer;
     self.credential_with_key = credential_with_key;
+    self.privacy_code.clear();
+    self.encryptor = Encryptor::new();
 
     if self.external_sender.is_some() {
       self.create_pending_group()?;
@@ -181,12 +188,14 @@ impl DaveSession {
   /// The user ID for this session.
   #[napi(getter)]
   pub fn user_id(&self) -> napi::Result<String> {
-    Ok(
-      u64::from_be_bytes(
-        self.credential_with_key.credential.serialized_content().try_into()
-          .map_err(|err| Error::from_reason(format!("Failed to convert user id: {err}")))?
-      ).to_string()
-    )
+    Ok(self.user_id_as_u64()?.to_string())
+  }
+
+  fn user_id_as_u64(&self) -> napi::Result<u64> {
+    Ok(u64::from_be_bytes(
+      self.credential_with_key.credential.serialized_content().try_into()
+        .map_err(|err| Error::from_reason(format!("Failed to convert our user id: {err}")))?
+    ))
   }
 
   /// The channel ID (group ID in MLS standards) for this session.
@@ -226,6 +235,16 @@ impl DaveSession {
     }
 
     Ok(Buffer::from(self.group.as_ref().unwrap().epoch_authenticator().as_slice()))
+  }
+
+  /// Get the voice privacy code of this session's group.
+  /// The result of this is created and cached each time a new transition is executed.
+  /// This is the equivalent of `generateDisplayableCode(epochAuthenticator, 30, 5)`.
+  /// @returns The current voice privacy code, or an empty string if the session is not active.
+  /// @see https://daveprotocol.com/#displayable-codes
+  #[napi(getter)]
+  pub fn voice_privacy_code(&self) -> napi::Result<&String> {
+    Ok(&self.privacy_code)
   }
 
   /// Set the external sender this session will recieve from.
@@ -504,6 +523,7 @@ impl DaveSession {
     debug!("Welcomed to group successfully, our leaf index is {:?}, our epoch is {:?}", group.own_leaf_index().u32(), group.epoch().as_u64());
     self.group = Some(group);
     self.status = SessionStatus::ACTIVE;
+    self.update_ratchets()?;
 
     Ok(())
   }
@@ -560,25 +580,12 @@ impl DaveSession {
         _ => return Err(Error::from_reason("ProcessedMessage is not a StagedCommitMessage".to_string())),
       }
     }
-  
+
     debug!("Commit processed successfully, our leaf index is {:?}, our epoch is {:?}", group.own_leaf_index().u32(), group.epoch().as_u64());
     self.status = SessionStatus::ACTIVE;
+    self.update_ratchets()?;
 
     Ok(())
-  }
-
-  /// Get the Voice Privacy Code of the session.
-  /// This is the equivalent of `generateDisplayableCode(epochAuthenticator, 30, 5)`.
-  /// @see https://daveprotocol.com/#displayable-codes
-  #[napi]
-  pub fn get_voice_privacy_code(&self) -> napi::Result<String> {
-    if self.group.is_none() || self.status == SessionStatus::PENDING {
-      return Err(Error::from_reason("Cannot epoch authenticator without an established MLS group".to_string()));
-    }
-
-    let epoch_authenticator = self.group.as_ref().unwrap().epoch_authenticator();
-
-    Ok(generate_displayable_code_internal(epoch_authenticator.as_slice(), 30, 5)?)
   }
 
   /// Get the verification code of another member of the group.
@@ -615,11 +622,7 @@ impl DaveSession {
       return Err(Error::from_reason("Cannot get fingerprint without an established group".to_string()))
     }
 
-    let our_uid = 
-      u64::from_be_bytes(
-        self.credential_with_key.credential.serialized_content().try_into()
-          .map_err(|err| Error::from_reason(format!("Failed to convert our user id: {err}")))?
-      );
+    let our_uid = self.user_id_as_u64()?;
 
     let their_uid = user_id.parse::<u64>()
       .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?;
@@ -645,22 +648,34 @@ impl DaveSession {
     Ok(fingerprints)
   }
 
+  pub fn update_ratchets(&mut self) -> napi::Result<()> {
+    debug!("Updating MLS ratchets");
+
+    // Update encryptor
+    let user_id = self.user_id_as_u64()?;
+    self.encryptor.set_key_ratchet(self.get_key_ratchet(user_id)?);
+    
+    // Update privacy code
+    let old_code = self.privacy_code.clone();
+    let epoch_authenticator = self.group.as_ref().unwrap().epoch_authenticator();
+    self.privacy_code = generate_displayable_code_internal(epoch_authenticator.as_slice(), 30, 5)?;
+    if self.privacy_code != old_code {
+      debug!("New Voice Privacy Code: {:?}", self.privacy_code);
+    }
+
+    Ok(())
+  }
+
   /// @see https://daveprotocol.com/#sender-key-derivation
-  pub fn get_key_ratchet(&self, user_id: String) -> napi::Result<()> {
+  fn get_key_ratchet(&self, user_id: u64) -> napi::Result<HashRatchet> {
     if self.group.is_none() || self.status == SessionStatus::PENDING {
       return Err(Error::from_reason("Cannot get key ratchet without an established group".to_string()))
     }
 
-    let le_user_id = user_id.parse::<u64>()
-      .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?
-      .to_le_bytes();
-
-    let base_secret = self.group.as_ref().unwrap().export_secret(self.provider.as_ref(), USER_MEDIA_KEY_BASE_LABEL, &le_user_id, 16)
+    let base_secret = self.group.as_ref().unwrap().export_secret(self.provider.as_ref(), USER_MEDIA_KEY_BASE_LABEL, &user_id.to_le_bytes(), 16)
       .map_err(|err| Error::from_reason(format!("Failed to export secret: {err}")))?;
 
-    let hash_ratchet = HashRatchet::new(&base_secret, self.provider.clone(), self.ciphersuite);
-
-    todo!();
+    Ok(HashRatchet::new(&base_secret, self.provider.clone(), self.ciphersuite))
   }
 
   /// The amount of items in memory storage.

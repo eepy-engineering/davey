@@ -13,11 +13,10 @@ impl AeadCipher {
     })
   }
 
-  pub fn encrypt(&mut self, plaintext: &[u8], nonce: &[u8], aad: &[u8]) -> napi::Result<(Vec<u8>, Vec<u8>)> {
-    let mut buffer = plaintext.to_vec();
-    let tag = self.key.encrypt_in_place_detached(nonce.into(), aad, &mut buffer)
+  pub fn encrypt(&mut self, buffer: &mut [u8], nonce: &[u8], aad: &[u8]) -> napi::Result<Vec<u8>> {
+    let tag = self.key.encrypt_in_place_detached(nonce.into(), aad, buffer)
       .map_err(|err| Error::from_reason(format!("AeadCipher encrypt error: {err}")))?;
-    Ok((buffer, tag.to_vec()))
+    Ok(tag.to_vec())
   }
 
   pub fn decrypt(&mut self, ciphertext: &[u8], nonce: &[u8], aad: &[u8], tag: &[u8]) -> napi::Result<Vec<u8>> {
