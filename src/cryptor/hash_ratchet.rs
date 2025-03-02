@@ -1,40 +1,72 @@
-use std::{collections::HashMap, sync::Arc};
-
+use std::collections::HashMap;
+use log::{debug, trace};
 use napi::Error;
-use openmls::{prelude::{aead::{AeadKey, AeadNonce}, secret::Secret, Ciphersuite, OpenMlsProvider}, tree::sender_ratchet::RatchetSecret};
-use openmls_rust_crypto::OpenMlsRustCrypto;
+// use openmls::prelude::Ciphersuite;
 
-/// An implementation of MLS++'s HashRatchet, where each generation is created and cached when requested, using [`RatchetSecret`] internally.
+use super::mlspp_crypto::derive_tree_secret;
+
+// const RATCHET_CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMP256_AES128GCM_SHA256_P256;
+
+/// An implementation of libdave's HashRatchet.
 pub struct HashRatchet {
-  ratchet: RatchetSecret,
-  cache: HashMap<u32, (AeadKey, AeadNonce)>,
-  provider: Arc<OpenMlsRustCrypto>,
-  ciphersuite: Ciphersuite
+  next_secret: Vec<u8>,
+  next_generation: u32,
+  // ratchet: RatchetSecret,
+  cache: HashMap<u32, (Vec<u8>, Vec<u8>)>
 }
 
 impl HashRatchet {
-  pub fn new(secret: &[u8], provider: Arc<OpenMlsRustCrypto>, ciphersuite: Ciphersuite) -> Self {
+  pub fn new(secret: Vec<u8>) -> Self {
+    trace!("Creating hash ratchet with secret: {:x?}", secret);
     Self {
-      ratchet: RatchetSecret::initial_ratchet_secret(Secret::from_slice(secret)),
-      cache: HashMap::new(),
-      provider,
-      ciphersuite
+      next_generation: 0,
+      next_secret: secret,
+      cache: HashMap::new()
     }
   }
 
-  pub fn get(&mut self, generation: u32) -> napi::Result<&(AeadKey, AeadNonce)> {
+  // https://www.rfc-editor.org/rfc/rfc9420.html#section-9.1-11.1
+  fn next(&mut self) -> napi::Result<()> {
+    let generation = self.next_generation;
+    let key = derive_tree_secret(
+      &self.next_secret,
+      "key",
+      generation,
+      // RATCHET_CIPHERSUITE.aead_key_length()
+      16
+    )?;
+    let nonce = derive_tree_secret(
+      &self.next_secret,
+      "nonce",
+      generation,
+      // RATCHET_CIPHERSUITE.aead_nonce_length()
+      12
+    )?;
+    self.next_secret = derive_tree_secret(
+      &self.next_secret,
+      "secret",
+      generation,
+      // RATCHET_CIPHERSUITE.hash_length()
+      32
+    )?;
+    self.next_generation += 1;
+    self.cache.insert(generation, (key, nonce));
+    Ok(())
+  }
+
+  pub fn get(&mut self, generation: u32) -> napi::Result<&(Vec<u8>, Vec<u8>)> {
     if self.cache.contains_key(&generation) {
       return Ok(self.cache.get(&generation).unwrap())
     }
 
-    if self.ratchet.generation() > generation {
+    if self.next_generation > generation {
       return Err(Error::from_reason("Tried to request an expired key".to_string()))
     }
 
-    while self.ratchet.generation() <= generation {
-      let (next_generation, material) = self.ratchet.ratchet_forward(self.provider.crypto(), self.ciphersuite)
-        .map_err(|err| Error::from_reason(format!("Error getting next generation: {err}")))?;
-      self.cache.insert(next_generation, material);
+    debug!("Getting generation {:?} (from next gen {:?})", generation, self.next_generation);
+    while self.next_generation <= generation {
+      self.next()
+        .map_err(|err| Error::from_reason(format!("Error getting next generation ({:?}): {err}", self.next_generation)))?;
     }
 
     Ok(self.cache.get(&generation).unwrap())
@@ -44,5 +76,23 @@ impl HashRatchet {
     if self.cache.contains_key(&generation) {
       self.cache.remove(&generation);
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn expected_result() {
+    env_logger::Builder::new().filter_level(log::LevelFilter::Trace).init();
+
+    let mut ratchet = HashRatchet::new(
+      vec![206, 221, 97, 177, 184, 161, 202, 105, 4, 101, 84, 40, 44, 247, 11, 123]
+    );
+
+    let (key, nonce) = ratchet.get(0).expect("Expected success from ratchet");
+    assert_eq!(*key, vec![117, 48, 249, 169, 148, 94, 45, 46, 6, 208, 101, 31, 123, 42, 134, 75]);
+    assert_eq!(*nonce, vec![48, 30, 95, 75, 116, 9, 15, 152, 94, 114, 107, 178]);
   }
 }

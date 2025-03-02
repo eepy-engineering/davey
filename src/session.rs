@@ -1,13 +1,12 @@
-use std::{array::TryFromSliceError, sync::Arc};
-use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error, Status};
+use std::array::TryFromSliceError;
+use napi::{bindgen_prelude::{AsyncTask, Buffer, Uint8Array}, Error, Status};
 use openmls::{group::*, prelude::{hash_ref::ProposalRef, tls_codec::Serialize, *}};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
-use log::{debug, warn};
+use log::{debug, trace, warn};
 
-use crate::{cryptor::{encryptor::Encryptor, hash_ratchet::HashRatchet}, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode};
+use crate::{cryptor::{encryptor::Encryptor, hash_ratchet::HashRatchet, MediaType}, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode, DAVEProtocolVersion};
 
-type DAVEProtocolVersion = u16;
 const USER_MEDIA_KEY_BASE_LABEL: &str = "Discord Secure Frames v0";
 
 /// Gets the [`Ciphersuite`] for a [`DAVEProtocolVersion`].
@@ -71,7 +70,7 @@ pub struct ProposalsResult {
 #[napi(js_name = "DAVESession")]
 pub struct DaveSession {
   protocol_version: DAVEProtocolVersion,
-  provider: Arc<OpenMlsRustCrypto>,
+  provider: OpenMlsRustCrypto,
   ciphersuite: Ciphersuite,
   group_id: GroupId,
   signer: SignatureKeyPair,
@@ -80,6 +79,7 @@ pub struct DaveSession {
   external_sender: Option<ExternalSender>,
   group: Option<MlsGroup>,
   status: SessionStatus,
+  ready: bool,
 
   privacy_code: String,
   encryptor: Encryptor,
@@ -109,13 +109,14 @@ impl DaveSession {
     Ok(DaveSession {
       protocol_version,
       ciphersuite,
-      provider: Arc::new(OpenMlsRustCrypto::default()),
+      provider: OpenMlsRustCrypto::default(),
       group_id,
       signer,
       credential_with_key,
       external_sender: None,
       group: None,
       status: SessionStatus::INACTIVE,
+      ready: false,
       privacy_code: String::new(),
       encryptor: Encryptor::new()
     })
@@ -175,6 +176,7 @@ impl DaveSession {
       .clear();
 
     self.status = SessionStatus::INACTIVE;
+    self.ready = false;
 
     Ok(())
   }
@@ -221,10 +223,10 @@ impl DaveSession {
     Ok(self.status)
   }
 
-  /// Whether this session's group was created.
+  /// Whether this session has an established group and is ready to encrypt/decrypt frames.
   #[napi(getter)]
-  pub fn group_created(&self) -> napi::Result<bool> {
-    Ok(self.group.is_some())
+  pub fn ready(&self) -> napi::Result<bool> {
+    Ok(self.ready)
   }
 
   /// Get the epoch authenticator of this session's group.
@@ -287,7 +289,7 @@ impl DaveSession {
         .key_package_extensions(Extensions::empty())
         .leaf_node_capabilities(dave_protocol_version_to_capabilities(self.protocol_version).unwrap())
         .key_package_lifetime(lifetime)
-        .build(self.ciphersuite, self.provider.as_ref(), &self.signer, self.credential_with_key.clone())
+        .build(self.ciphersuite, &self.provider, &self.signer, self.credential_with_key.clone())
         .map_err(|err| Error::from_reason(format!("Error creating key package: {err}")))?;
 
     let buffer = key_package.key_package().tls_serialize_detached()
@@ -313,7 +315,7 @@ impl DaveSession {
       .build();
 
     let group = MlsGroup::new_with_group_id(
-        self.provider.as_ref(),
+        &self.provider,
         &self.signer,
         &mls_group_create_config,
         self.group_id.clone(),
@@ -363,7 +365,7 @@ impl DaveSession {
           .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_string()))?;
 
         let processed_message = group
-          .process_message(self.provider.as_ref(), protocol_message)
+          .process_message(&self.provider, protocol_message)
           .map_err(|err| Error::from_reason(format!("Could not process message: {err}")))?;
 
         match processed_message.into_content() {
@@ -435,7 +437,7 @@ impl DaveSession {
     }
 
     let (commit, welcome, _group_info) = group
-      .commit_to_pending_proposals(self.provider.as_ref(), &self.signer)
+      .commit_to_pending_proposals(&self.provider, &self.signer)
       .map_err(|err| Error::from_reason(format!("Error committing pending proposals: {err}")))?;
 
     self.status = SessionStatus::AWAITING_RESPONSE;
@@ -493,7 +495,7 @@ impl DaveSession {
     let welcome = Welcome::tls_deserialize_exact_bytes(&welcome)
       .map_err(|err| Error::from_reason(format!("Error deserializing welcome: {err}")))?;
 
-    let staged_join = StagedWelcome::new_from_welcome(self.provider.as_ref(), &mls_group_config, welcome, None)
+    let staged_join = StagedWelcome::new_from_welcome(&self.provider, &mls_group_config, welcome, None)
       .map_err(|err| Error::from_reason(format!("Error constructing staged join: {err}")))?;
 
     let external_senders = staged_join.group_context().extensions().external_senders();
@@ -511,7 +513,7 @@ impl DaveSession {
     }
 
     let group = staged_join
-      .into_group(self.provider.as_ref())
+      .into_group(&self.provider)
       .map_err(|err| Error::from_reason(format!("Error joining group from staged welcome: {err}")))?;
 
     if self.group.is_some() {
@@ -558,13 +560,13 @@ impl DaveSession {
     }
 
     let processed_message_result = group
-      .process_message(self.provider.as_ref(), protocol_message);
+      .process_message(&self.provider, protocol_message);
 
     if processed_message_result.is_err() && ProcessMessageError::InvalidCommit(StageCommitError::OwnCommit) == *processed_message_result.as_ref().unwrap_err() {
       // This is our own commit, lets merge pending instead
       debug!("Found own commit, merging pending commit instead.");
       group
-        .merge_pending_commit(self.provider.as_ref())
+        .merge_pending_commit(&self.provider)
         .map_err(|err| Error::from_reason(format!("Error merging pending commit: {err}")))?;
     } else {
       // Someone elses commit, go through the usual stuff
@@ -574,7 +576,7 @@ impl DaveSession {
       match processed_message.into_content() {
         ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
           group
-            .merge_staged_commit(self.provider.as_ref(), *staged_commit)
+            .merge_staged_commit(&self.provider, *staged_commit)
             .map_err(|err| Error::from_reason(format!("Could not stage commit: {err}")))?;
         }
         _ => return Err(Error::from_reason("ProcessedMessage is not a StagedCommitMessage".to_string())),
@@ -663,6 +665,8 @@ impl DaveSession {
       debug!("New Voice Privacy Code: {:?}", self.privacy_code);
     }
 
+    self.ready = true;
+
     Ok(())
   }
 
@@ -672,10 +676,32 @@ impl DaveSession {
       return Err(Error::from_reason("Cannot get key ratchet without an established group".to_string()))
     }
 
-    let base_secret = self.group.as_ref().unwrap().export_secret(self.provider.as_ref(), USER_MEDIA_KEY_BASE_LABEL, &user_id.to_le_bytes(), 16)
+    let base_secret = self.group.as_ref().unwrap()
+      .export_secret(&self.provider, USER_MEDIA_KEY_BASE_LABEL, &user_id.to_le_bytes(), 16)
       .map_err(|err| Error::from_reason(format!("Failed to export secret: {err}")))?;
 
-    Ok(HashRatchet::new(&base_secret, self.provider.clone(), self.ciphersuite))
+    trace!("Got base secret for user {:?}: {:?}", user_id, base_secret);
+    Ok(HashRatchet::new(base_secret))
+  }
+
+  /// Encrypt a packet to send through E2EE.
+  #[napi]
+  pub fn encrypt(&mut self, media_type: MediaType, ssrc: u32, mut packet: Uint8Array) -> napi::Result<Uint8Array> {
+    if !self.ready {
+      return Err(Error::from_reason("Session is not ready to process frames".to_string()))
+    }
+
+    let mut out_size: usize = 0;
+    let mut encrypted_buffer: Vec<u8> = Vec::new();
+    encrypted_buffer.reserve(Encryptor::get_max_ciphertext_byte_size(media_type, packet.len()));
+
+    let success = self.encryptor.encrypt(media_type, ssrc, &encrypted_buffer, &mut packet, &mut out_size);
+    encrypted_buffer.resize(out_size, 0);
+    if !success {
+      return Err(Error::from_reason("DAVE encryption failure".to_string()));
+    }
+
+    Ok(encrypted_buffer.into())
   }
 
   /// The amount of items in memory storage.
@@ -690,8 +716,8 @@ impl DaveSession {
   #[napi]
   pub fn to_string(&self) -> napi::Result<String> {
     Ok(format!(
-      "DAVESession {{ protocolVersion: {}, userId: {}, channelId: {}, group_created: {}, status: {:?} }}",
-      self.protocol_version()?, self.user_id()?, self.channel_id()?, self.group.is_some(), self.status
+      "DAVESession {{ protocolVersion: {}, userId: {}, channelId: {}, ready: {}, status: {:?} }}",
+      self.protocol_version()?, self.user_id()?, self.channel_id()?, self.ready, self.status
     ))
   }
 }

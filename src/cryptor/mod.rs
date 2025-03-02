@@ -26,20 +26,20 @@ pub const MAX_FRAMES_PER_SECOND: u64 = 50 + 2 * 60; // 50 audio frames + 2 * 60f
 #[napi]
 #[derive(Debug,PartialEq)]
 pub enum MediaType {
-  Audio = 0,
-  Video = 1
+  AUDIO = 0,
+  VIDEO = 1
 }
 
 #[napi]
 #[derive(Debug,PartialEq)]
 pub enum Codec {
-  Unknown = 0,
-  Opus = 1,
-  Vp8 = 2,
-  Vp9 = 3,
+  UNKNOWN = 0,
+  OPUS = 1,
+  VP8 = 2,
+  VP9 = 3,
   H264 = 4,
   H265 = 5,
-  Av1 = 6
+  AV1 = 6
 }
 
 pub(crate) mod aead_cipher;
@@ -49,3 +49,4 @@ pub(crate) mod encryptor;
 pub(crate) mod leb128;
 pub(crate) mod frame_processors;
 pub(crate) mod codec_utils;
+pub(crate) mod mlspp_crypto;

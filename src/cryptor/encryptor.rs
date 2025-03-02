@@ -32,13 +32,15 @@ impl Encryptor {
     self.truncated_nonce = 0;
   }
 
+  // TODO use results to propogate errors up and return properly
   pub fn encrypt(&mut self, media_type: MediaType, ssrc: u32, frame: &[u8], encrypted_frame: &mut [u8], bytes_written: &mut usize) -> bool {
-    if media_type != MediaType::Audio && media_type != MediaType::Video {
+    if media_type != MediaType::AUDIO && media_type != MediaType::VIDEO {
       warn!("encryption failed, invalid media type {:?}", media_type);
       return false;
     }
 
     if self.ratchet.is_none() {
+      warn!("encryption failed, no ratchet");
       // stats[this_media_type].encrypt_failure++;
       return false;
     }
@@ -78,6 +80,7 @@ impl Encryptor {
       let (curr_cryptor, truncated_nonce) = self.get_next_cryptor_and_nonce();
 
       if curr_cryptor.is_none() {
+        warn!("encryption failed, no cryptor");
         success = false;
         break;
       }
@@ -87,13 +90,25 @@ impl Encryptor {
       nonce_buffer[AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET..AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET + AES_GCM_128_TRUNCATED_SYNC_NONCE_BYTES]
         .copy_from_slice(&truncated_nonce.to_le_bytes());
 
-      // Note: ciphertext_bytes should be resized properly already
+      // ciphertext_bytes should be resized properly already
+      if frame_processor.ciphertext_bytes.len() != plaintext_buffer.len() {
+        warn!("encryption failed, plaintext mismatch (internal error!)");
+        success = false;
+        break;
+      }
       frame_processor.ciphertext_bytes.copy_from_slice(&plaintext_buffer);
 
       let encrypt_result = curr_cryptor.encrypt(frame_processor.ciphertext_bytes.as_mut_slice(), &nonce_buffer, additional_data);
       if let Ok(tag) = encrypt_result {
+        if tag.len() != AES_GCM_127_TRUNCATED_TAG_BYTES {
+          warn!("encryption failed, tag size mismatch (got {:?})", tag.len());
+          success = false;
+          break;
+        }
+  
         encrypted_frame[tag_buffer_range.clone()].copy_from_slice(&tag);
       } else {
+        warn!("encryption failed, aead failed");
         success = false;
         break;
       }
@@ -107,17 +122,20 @@ impl Encryptor {
       let (supplemental_bytes_buffer, marker_bytes_buffer) = rest.split_at_mut(2);
 
       if write_leb128(truncated_nonce as u64, truncated_nonce_buffer) != size {
+        warn!("encryption failed, write_leb128 failed");
         success = false;
         break;
       }
 
       if serialize_unencrypted_ranges(&unencrypted_ranges, unencrypted_ranges_buffer) != ranges_size {
+        warn!("encryption failed, serialize_unencrypted_ranges failed");
         success = false;
         break;
       }
 
       let supplemental_bytes_large = SUPPLEMENTAL_BYTES + size + ranges_size as usize;
       if supplemental_bytes_large > u16::MAX as usize {
+        warn!("encryption failed, supplemental_bytes_large check failed");
         success = false;
         break;
       }
@@ -133,6 +151,7 @@ impl Encryptor {
         *bytes_written = encrypted_frame_bytes;
         break;
       } else if attempt >= MAX_CIPHERTEXT_VALIDATION_RETRIES {
+        warn!("encryption failed, reached max validation tries");
         success = false;
         break;
       }
@@ -173,7 +192,8 @@ impl Encryptor {
           let cipher = AeadCipher::new(key.as_slice());
           self.cryptor = cipher.ok();
         },
-        Err(_) => {
+        Err(err) => {
+          warn!("Failed to get cryptor: {:?}", err);
           self.cryptor = None;
         }
       }
@@ -193,8 +213,8 @@ impl Encryptor {
     self.frame_processors.push(frame_processor);
   }
 
-  fn codec_for_ssrc(&self, ssrc: u32) -> Codec {
-    // TODO Implement logic to get codec for SSRC
-    Codec::Opus
+  fn codec_for_ssrc(&self, _ssrc: u32) -> Codec {
+    // TODO ssrc codec pairs...
+    Codec::OPUS
   }
 }

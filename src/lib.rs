@@ -7,6 +7,8 @@ use rand::rngs::OsRng;
 #[macro_use]
 extern crate napi_derive;
 
+pub type DAVEProtocolVersion = u16;
+
 mod session;
 pub use session::*;
 
@@ -22,7 +24,7 @@ mod cryptor;
 #[cfg(debug_assertions)]
 #[module_exports]
 fn init(mut _exports: napi::JsObject) -> napi::Result<()> {
-	env_logger::Builder::new().filter_level(log::LevelFilter::Debug).init();
+	env_logger::Builder::new().filter_level(log::LevelFilter::Trace).init();
   Ok(())
 }
 

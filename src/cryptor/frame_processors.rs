@@ -285,7 +285,7 @@ pub struct OutboundFrameProcessor {
 impl OutboundFrameProcessor {
   pub fn new() -> Self {
     Self {
-      frame_codec: Codec::Unknown,
+      frame_codec: Codec::UNKNOWN,
       frame_index: 0,
       unencrypted_bytes: Vec::new(),
       encrypted_bytes: Vec::new(),
@@ -295,7 +295,7 @@ impl OutboundFrameProcessor {
   }
 
   pub fn reset(&mut self) {
-    self.frame_codec = Codec::Unknown;
+    self.frame_codec = Codec::UNKNOWN;
     self.frame_index = 0;
     self.unencrypted_ranges.clear();
     self.encrypted_bytes.clear();
@@ -314,7 +314,7 @@ impl OutboundFrameProcessor {
 
     // TODO add more codecs
     match self.frame_codec {
-      Codec::Opus => {
+      Codec::OPUS => {
         success = process_frame_opus(self, frame);
       },
       _ => {

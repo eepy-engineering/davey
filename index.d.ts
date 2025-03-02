@@ -35,17 +35,17 @@ export declare function generatePairwiseFingerprint(version: number, keyA: Buffe
  */
 export declare function generateDisplayableCode(data: Buffer, desiredLength: number, groupSize: number): string
 export const enum MediaType {
-  Audio = 0,
-  Video = 1
+  AUDIO = 0,
+  VIDEO = 1
 }
 export const enum Codec {
-  Unknown = 0,
-  Opus = 1,
-  Vp8 = 2,
-  Vp9 = 3,
+  UNKNOWN = 0,
+  OPUS = 1,
+  VP8 = 2,
+  VP9 = 3,
   H264 = 4,
   H265 = 5,
-  Av1 = 6
+  AV1 = 6
 }
 export interface SigningKeyPair {
   private: Buffer
@@ -82,8 +82,8 @@ export declare class DAVESession {
   get ciphersuite(): number
   /** The status of this session. */
   get status(): SessionStatus
-  /** Whether this session's group was created. */
-  get groupCreated(): boolean
+  /** Whether this session has an established group and is ready to encrypt/decrypt frames. */
+  get ready(): boolean
   /** Get the epoch authenticator of this session's group. */
   getEpochAuthenticator(): Buffer
   /**
@@ -137,6 +137,8 @@ export declare class DAVESession {
    * @see https://daveprotocol.com/#verification-fingerprint
    */
   getPairwiseFingerprint(version: number, userId: string): Promise<Buffer>
+  /** Encrypt a packet to send through E2EE. */
+  encrypt(mediaType: MediaType, ssrc: number, packet: Uint8Array): Uint8Array
   /** The amount of items in memory storage. */
   get itemsInStorage(): number
   /** @ignore */
