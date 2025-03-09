@@ -1,5 +1,5 @@
 use std::array::TryFromSliceError;
-use napi::{bindgen_prelude::{AsyncTask, Buffer, Uint8Array}, Error, Status};
+use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error, Status};
 use openmls::{group::*, prelude::{hash_ref::ProposalRef, tls_codec::Serialize, *}};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -684,9 +684,12 @@ impl DaveSession {
     Ok(HashRatchet::new(base_secret))
   }
 
-  /// Encrypt a packet to send through E2EE.
+  /// Encrypt a packet with E2EE.
+  /// @param mediaType The type of media to encrypt
+  /// @param ssrc The sender's SSRC
+  /// @param packet The packet to encrypt
   #[napi]
-  pub fn encrypt(&mut self, media_type: MediaType, ssrc: u32, packet: Uint8Array) -> napi::Result<Uint8Array> {
+  pub fn encrypt(&mut self, media_type: MediaType, ssrc: u32, packet: Buffer) -> napi::Result<Buffer> {
     if !self.ready {
       return Err(Error::from_reason("Session is not ready to process frames".to_string()))
     }
@@ -705,6 +708,14 @@ impl DaveSession {
     }
 
     Ok(encrypted_buffer.into())
+  }
+
+  /// Encrypt an opus packet to E2EE.
+  /// This is the shorthand for `encrypt(MediaType.AUDIO, 0, packet)`
+  /// @param packet The packet to encrypt
+  #[napi]
+  pub fn encrypt_opus(&mut self, packet: Buffer) -> napi::Result<Buffer> {
+    self.encrypt(MediaType::AUDIO, 0, packet)
   }
 
   /// The amount of items in memory storage.

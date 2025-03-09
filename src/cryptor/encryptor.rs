@@ -106,10 +106,14 @@ impl Encryptor {
   
         encrypted_frame[frame_size..frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES].copy_from_slice(&tag);
       } else {
-        warn!("encryption failed, aead failed");
+        warn!("encryption failed, aead encryption failed");
         success = false;
         break;
       }
+
+      // stats[this_media_type].encrypt_attempts++;
+      // stats[this_media_type].encrypt_max_attempts =
+      //   std::max(stats[this_media_type].encrypt_max_attempts, (uint64_t)attempt);
 
       let reconstructed_frame_size = frame_processor.reconstruct_frame(encrypted_frame);
 
@@ -133,7 +137,7 @@ impl Encryptor {
       }
 
       let supplemental_bytes_large = SUPPLEMENTAL_BYTES + size + ranges_size as usize;
-      if supplemental_bytes_large > u16::MAX as usize {
+      if supplemental_bytes_large > u8::MAX as usize {
         warn!("encryption failed, supplemental_bytes_large check failed");
         success = false;
         break;

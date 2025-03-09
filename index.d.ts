@@ -137,8 +137,19 @@ export declare class DAVESession {
    * @see https://daveprotocol.com/#verification-fingerprint
    */
   getPairwiseFingerprint(version: number, userId: string): Promise<Buffer>
-  /** Encrypt a packet to send through E2EE. */
-  encrypt(mediaType: MediaType, ssrc: number, packet: Uint8Array): Uint8Array
+  /**
+   * Encrypt a packet with E2EE.
+   * @param mediaType The type of media to encrypt
+   * @param ssrc The sender's SSRC
+   * @param packet The packet to encrypt
+   */
+  encrypt(mediaType: MediaType, ssrc: number, packet: Buffer): Buffer
+  /**
+   * Encrypt an opus packet to E2EE.
+   * This is the shorthand for `encrypt(MediaType.AUDIO, 0, packet)` (an unknown SSRC defaults to opus)
+   * @param packet The packet to encrypt
+   */
+  encryptOpus(packet: Buffer): Buffer
   /** The amount of items in memory storage. */
   get itemsInStorage(): number
   /** @ignore */
