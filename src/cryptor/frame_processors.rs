@@ -114,6 +114,7 @@ pub fn do_reconstruct(
     let size = other_bytes.len() - other_bytes_index;
     output[frame_index..frame_index + size]
       .copy_from_slice(&other_bytes[other_bytes_index..other_bytes_index + size]);
+    frame_index += size;
   }
 
   frame_index
@@ -303,7 +304,7 @@ impl OutboundFrameProcessor {
     self.unencrypted_ranges.clear();
   }
 
-  pub fn parse_frame(&mut self, frame: &[u8], codec: Codec) {
+  pub fn process_frame(&mut self, frame: &[u8], codec: Codec) {
     self.reset();
 
     self.frame_codec = codec;

@@ -686,16 +686,19 @@ impl DaveSession {
 
   /// Encrypt a packet to send through E2EE.
   #[napi]
-  pub fn encrypt(&mut self, media_type: MediaType, ssrc: u32, mut packet: Uint8Array) -> napi::Result<Uint8Array> {
+  pub fn encrypt(&mut self, media_type: MediaType, ssrc: u32, packet: Uint8Array) -> napi::Result<Uint8Array> {
     if !self.ready {
       return Err(Error::from_reason("Session is not ready to process frames".to_string()))
     }
 
     let mut out_size: usize = 0;
     let mut encrypted_buffer: Vec<u8> = Vec::new();
-    encrypted_buffer.reserve(Encryptor::get_max_ciphertext_byte_size(media_type, packet.len()));
+    encrypted_buffer.resize(
+      Encryptor::get_max_ciphertext_byte_size(media_type, packet.len()),
+      0
+    );
 
-    let success = self.encryptor.encrypt(media_type, ssrc, &encrypted_buffer, &mut packet, &mut out_size);
+    let success = self.encryptor.encrypt(media_type, ssrc, &packet, &mut encrypted_buffer, &mut out_size);
     encrypted_buffer.resize(out_size, 0);
     if !success {
       return Err(Error::from_reason("DAVE encryption failure".to_string()));

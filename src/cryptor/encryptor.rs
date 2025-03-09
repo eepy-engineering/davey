@@ -51,7 +51,7 @@ impl Encryptor {
     let codec = self.codec_for_ssrc(ssrc);
 
     let mut frame_processor = self.get_or_create_frame_processor();
-    frame_processor.parse_frame(frame, codec);
+    frame_processor.process_frame(frame, codec);
 
     let unencrypted_ranges = &frame_processor.unencrypted_ranges;
     let ranges_size = unencrypted_ranges_size(&unencrypted_ranges);
@@ -59,8 +59,7 @@ impl Encryptor {
     let additional_data = &frame_processor.unencrypted_bytes;
     let plaintext_buffer = &frame_processor.encrypted_bytes;
 
-    let frame_size = additional_data.len() + plaintext_buffer.len();
-    let tag_buffer_range = frame_size..frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES;
+    let frame_size = frame_processor.encrypted_bytes.len() + frame_processor.unencrypted_bytes.len();
 
     let mut nonce_buffer = [0u8; AES_GCM_128_NONCE_BYTES];
 
@@ -99,14 +98,13 @@ impl Encryptor {
       frame_processor.ciphertext_bytes.copy_from_slice(&plaintext_buffer);
 
       let encrypt_result = curr_cryptor.encrypt(frame_processor.ciphertext_bytes.as_mut_slice(), &nonce_buffer, additional_data);
-      if let Ok(tag) = encrypt_result {
+      if let Ok(mut tag) = encrypt_result {
         if tag.len() != AES_GCM_127_TRUNCATED_TAG_BYTES {
-          warn!("encryption failed, tag size mismatch (got {:?})", tag.len());
-          success = false;
-          break;
+          // "The authentication tag resulting from the AES128-GCM encryption is truncated to 8 bytes."
+          tag.resize(8, 0);
         }
   
-        encrypted_frame[tag_buffer_range.clone()].copy_from_slice(&tag);
+        encrypted_frame[frame_size..frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES].copy_from_slice(&tag);
       } else {
         warn!("encryption failed, aead failed");
         success = false;
@@ -119,7 +117,8 @@ impl Encryptor {
 
       let (truncated_nonce_buffer, rest) = encrypted_frame[frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES..].split_at_mut(size);
       let (unencrypted_ranges_buffer, rest) = rest.split_at_mut(ranges_size as usize);
-      let (supplemental_bytes_buffer, marker_bytes_buffer) = rest.split_at_mut(2);
+      let (supplemental_bytes_buffer, rest) = rest.split_at_mut(1);
+      let (marker_bytes_buffer, _) = rest.split_at_mut(MARKER_BYTES.len());
 
       if write_leb128(truncated_nonce as u64, truncated_nonce_buffer) != size {
         warn!("encryption failed, write_leb128 failed");
@@ -140,12 +139,12 @@ impl Encryptor {
         break;
       }
 
-      let supplemental_bytes = supplemental_bytes_large as u16;
+      let supplemental_bytes = supplemental_bytes_large as u8;
       supplemental_bytes_buffer.copy_from_slice(&supplemental_bytes.to_le_bytes());
 
       marker_bytes_buffer.copy_from_slice(&MARKER_BYTES);
 
-      let encrypted_frame_bytes = reconstructed_frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES + size + ranges_size as usize + 2 + MARKER_BYTES.len();
+      let encrypted_frame_bytes = reconstructed_frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES + size + ranges_size as usize + 1 + MARKER_BYTES.len();
 
       if validate_encrypted_frame(&frame_processor, &encrypted_frame[..encrypted_frame_bytes]) {
         *bytes_written = encrypted_frame_bytes;

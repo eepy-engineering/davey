@@ -49,7 +49,7 @@ impl HashRatchet {
       // RATCHET_CIPHERSUITE.hash_length()
       32
     )?;
-    self.next_generation += 1;
+    self.next_generation = self.next_generation.wrapping_add(1);
     self.cache.insert(generation, (key, nonce));
     Ok(())
   }
