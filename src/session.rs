@@ -5,7 +5,7 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use log::{debug, trace, warn};
 
-use crate::{cryptor::{encryptor::Encryptor, hash_ratchet::HashRatchet, MediaType}, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode, DAVEProtocolVersion};
+use crate::{cryptor::{encryptor::{EncryptionStats, Encryptor}, hash_ratchet::HashRatchet, Codec, MediaType}, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode, DAVEProtocolVersion};
 
 const USER_MEDIA_KEY_BASE_LABEL: &str = "Discord Secure Frames v0";
 
@@ -686,10 +686,10 @@ impl DaveSession {
 
   /// Encrypt a packet with E2EE.
   /// @param mediaType The type of media to encrypt
-  /// @param ssrc The sender's SSRC
+  /// @param codec The codec of the packet
   /// @param packet The packet to encrypt
   #[napi]
-  pub fn encrypt(&mut self, media_type: MediaType, ssrc: u32, packet: Buffer) -> napi::Result<Buffer> {
+  pub fn encrypt(&mut self, media_type: MediaType, codec: Codec, packet: Buffer) -> napi::Result<Buffer> {
     if !self.ready {
       return Err(Error::from_reason("Session is not ready to process frames".to_string()))
     }
@@ -701,7 +701,7 @@ impl DaveSession {
       0
     );
 
-    let success = self.encryptor.encrypt(media_type, ssrc, &packet, &mut encrypted_buffer, &mut out_size);
+    let success = self.encryptor.encrypt(media_type, codec, &packet, &mut encrypted_buffer, &mut out_size);
     encrypted_buffer.resize(out_size, 0);
     if !success {
       return Err(Error::from_reason("DAVE encryption failure".to_string()));
@@ -711,19 +711,18 @@ impl DaveSession {
   }
 
   /// Encrypt an opus packet to E2EE.
-  /// This is the shorthand for `encrypt(MediaType.AUDIO, 0, packet)`
+  /// This is the shorthand for `encrypt(MediaType.AUDIO, Codec.OPUS, packet)`
   /// @param packet The packet to encrypt
   #[napi]
   pub fn encrypt_opus(&mut self, packet: Buffer) -> napi::Result<Buffer> {
-    self.encrypt(MediaType::AUDIO, 0, packet)
+    self.encrypt(MediaType::AUDIO, Codec::OPUS, packet)
   }
 
-  /// The amount of items in memory storage.
-  #[napi(getter)]
-  pub fn items_in_storage(&self) -> napi::Result<i32> {
-    let map_read_guard = self.provider.storage().values.read()
-      .map_err(|err| Error::from_reason(format!("MemoryStorage error: {err}")))?;
-    Ok(map_read_guard.len() as i32)
+  /// Get the encryption stats of a media type
+  /// @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
+  #[napi]
+  pub fn get_encryption_stats(&self, media_type: Option<MediaType>) -> EncryptionStats {
+    self.encryptor.stats.get(&media_type.unwrap_or(MediaType::AUDIO)).unwrap().clone()
   }
 
   /// @ignore

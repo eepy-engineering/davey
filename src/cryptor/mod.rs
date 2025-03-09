@@ -24,7 +24,7 @@ pub const GENERATION_WRAP: u32 = 1 << (8 * RATCHET_GENERATION_BYTES);
 pub const MAX_FRAMES_PER_SECOND: u64 = 50 + 2 * 60; // 50 audio frames + 2 * 60fps video streams
 
 #[napi]
-#[derive(Debug,PartialEq)]
+#[derive(Debug,PartialEq,Hash,Eq)]
 pub enum MediaType {
   AUDIO = 0,
   VIDEO = 1

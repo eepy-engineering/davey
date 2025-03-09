@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 use log::warn;
 
@@ -6,22 +6,44 @@ use crate::cryptor::{codec_utils::validate_encrypted_frame, frame_processors::{s
 
 use super::{aead_cipher::AeadCipher, cryptor_manager::compute_wrapped_generation, frame_processors::OutboundFrameProcessor, hash_ratchet::HashRatchet, Codec, MediaType, RATCHET_GENERATION_SHIFT_BITS};
 
+#[napi(object)]
+#[derive(Clone)]
+pub struct EncryptionStats {
+  /// Number of encryption successes
+  pub successes: u32,
+  /// Number of encryption failures
+  pub failures: u32,
+  /// Total encryption duration in microseconds
+  pub duration: u32,
+  /// Total amounts of encryption attempts
+  pub attempts: u32,
+  /// Maximum attempts reached at encryption
+  pub max_attempts: u32,
+}
+
 pub struct Encryptor {
   ratchet: Option<HashRatchet>,
   cryptor: Option<AeadCipher>,
   current_key_generation: u32,
   truncated_nonce: u32,
   frame_processors: Vec<OutboundFrameProcessor>,
+  pub stats: HashMap<MediaType, EncryptionStats>
 }
 
 impl Encryptor {
   pub fn new() -> Self {
+    let mut stats = HashMap::new();
+    for media_type in [MediaType::AUDIO, MediaType::VIDEO].iter() {
+      stats.insert(*media_type, EncryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0, max_attempts: 0 });
+    }
+
     Self {
       ratchet: None,
       cryptor: None,
       current_key_generation: 0,
       truncated_nonce: 0,
       frame_processors: Vec::new(),
+      stats
     }
   }
 
@@ -33,22 +55,22 @@ impl Encryptor {
   }
 
   // TODO use results to propogate errors up and return properly
-  pub fn encrypt(&mut self, media_type: MediaType, ssrc: u32, frame: &[u8], encrypted_frame: &mut [u8], bytes_written: &mut usize) -> bool {
+  pub fn encrypt(&mut self, media_type: MediaType, codec: Codec, frame: &[u8], encrypted_frame: &mut [u8], bytes_written: &mut usize) -> bool {
     if media_type != MediaType::AUDIO && media_type != MediaType::VIDEO {
       warn!("encryption failed, invalid media type {:?}", media_type);
       return false;
     }
 
+    let stats = self.stats.get_mut(&media_type).unwrap();
+
     if self.ratchet.is_none() {
       warn!("encryption failed, no ratchet");
-      // stats[this_media_type].encrypt_failure++;
+      stats.failures += 1;
       return false;
     }
 
-    // let start = Instant::now();
+    let start = Instant::now();
     let mut success = true;
-    // write the codec identifier
-    let codec = self.codec_for_ssrc(ssrc);
 
     let mut frame_processor = self.get_or_create_frame_processor();
     frame_processor.process_frame(frame, codec);
@@ -98,6 +120,11 @@ impl Encryptor {
       frame_processor.ciphertext_bytes.copy_from_slice(&plaintext_buffer);
 
       let encrypt_result = curr_cryptor.encrypt(frame_processor.ciphertext_bytes.as_mut_slice(), &nonce_buffer, additional_data);
+
+      let stats = self.stats.get_mut(&media_type).unwrap();
+      stats.attempts += 1;
+      stats.max_attempts = stats.max_attempts.max(attempt as u32);
+
       if let Ok(mut tag) = encrypt_result {
         if tag.len() != AES_GCM_127_TRUNCATED_TAG_BYTES {
           // "The authentication tag resulting from the AES128-GCM encryption is truncated to 8 bytes."
@@ -110,10 +137,6 @@ impl Encryptor {
         success = false;
         break;
       }
-
-      // stats[this_media_type].encrypt_attempts++;
-      // stats[this_media_type].encrypt_max_attempts =
-      //   std::max(stats[this_media_type].encrypt_max_attempts, (uint64_t)attempt);
 
       let reconstructed_frame_size = frame_processor.reconstruct_frame(encrypted_frame);
 
@@ -160,16 +183,17 @@ impl Encryptor {
       }
     }
 
+    let stats = self.stats.get_mut(&media_type).unwrap();
+    let now = Instant::now();
+    stats.duration += now.duration_since(start).as_micros() as u32;
+    if success {
+      stats.successes += 1;
+    } else {
+      stats.failures += 1;
+    }
+
     // FIXME this technically should return when frame_processor drops, but thats gonna be a bit annoying here
     self.return_frame_processor(frame_processor);
-
-    // let now = Instant::now();
-    // // stats[this_media_type].encrypt_duration += now.duration_since(start).as_micros();
-    // if success {
-    //   // stats[this_media_type].encrypt_success++;
-    // } else {
-    //   // stats[this_media_type].encrypt_failure++;
-    // }
 
     success
   }
@@ -214,10 +238,5 @@ impl Encryptor {
 
   fn return_frame_processor(&mut self, frame_processor: OutboundFrameProcessor) {
     self.frame_processors.push(frame_processor);
-  }
-
-  fn codec_for_ssrc(&self, _ssrc: u32) -> Codec {
-    // TODO ssrc codec pairs...
-    Codec::OPUS
   }
 }

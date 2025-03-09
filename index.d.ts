@@ -47,6 +47,18 @@ export const enum Codec {
   H265 = 5,
   AV1 = 6
 }
+export interface EncryptionStats {
+  /** Number of encryption successes */
+  successes: number
+  /** Number of encryption failures */
+  failures: number
+  /** Total encryption duration in microseconds */
+  duration: number
+  /** Total amounts of encryption attempts */
+  attempts: number
+  /** Maximum attempts reached at encryption */
+  maxAttempts: number
+}
 export interface SigningKeyPair {
   private: Buffer
   public: Buffer
@@ -140,18 +152,21 @@ export declare class DAVESession {
   /**
    * Encrypt a packet with E2EE.
    * @param mediaType The type of media to encrypt
-   * @param ssrc The sender's SSRC
+   * @param codec The codec of the packet
    * @param packet The packet to encrypt
    */
-  encrypt(mediaType: MediaType, ssrc: number, packet: Buffer): Buffer
+  encrypt(mediaType: MediaType, codec: Codec, packet: Buffer): Buffer
   /**
    * Encrypt an opus packet to E2EE.
-   * This is the shorthand for `encrypt(MediaType.AUDIO, 0, packet)` (an unknown SSRC defaults to opus)
+   * This is the shorthand for `encrypt(MediaType.AUDIO, Codec.OPUS, packet)`
    * @param packet The packet to encrypt
    */
   encryptOpus(packet: Buffer): Buffer
-  /** The amount of items in memory storage. */
-  get itemsInStorage(): number
+  /**
+   * Get the encryption stats of a media type
+   * @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
+   */
+  getEncryptionStats(mediaType?: MediaType | undefined | null): EncryptionStats
   /** @ignore */
   toString(): string
 }
