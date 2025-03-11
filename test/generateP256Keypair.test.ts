@@ -1,15 +1,11 @@
 import test from 'ava';
 
-import { generateSigningKeys } from '../index';
+import { generateP256Keypair } from '..';
 
 test('returns valid keys', (t) => {
-  const result = generateSigningKeys(2);
+  const result = generateP256Keypair();
   t.deepEqual(Object.keys(result), ['private', 'public']);
   t.true(Buffer.isBuffer(result.private));
   t.true(Buffer.isBuffer(result.public));
-});
-
-test('throws on invalid ciphersuite', (t) => {
-  t.throws(() => generateSigningKeys(0));
 });
 
