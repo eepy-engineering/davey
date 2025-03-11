@@ -1,6 +1,5 @@
-use std::{cmp::max, collections::{HashMap, VecDeque}, sync::{Arc, RwLock}, time::{Duration, Instant}};
+use std::{cmp::max, collections::{HashMap, VecDeque}, sync::Arc, time::{Duration, Instant}};
 use log::{debug, trace, warn};
-use napi::Error;
 
 use crate::cryptor::{CIPHER_EXPIRY, MAX_MISSING_NONCES};
 
@@ -31,8 +30,8 @@ struct ExpiringCipher {
 }
 
 pub struct CipherManager {
-  clock: Instant,
-  key_ratchet: Arc<RwLock<HashRatchet>>,
+  clock: Arc<Instant>,
+  key_ratchet: HashRatchet,
   cryptor_generations: HashMap<u32, ExpiringCipher>,
   ratchet_creation: Duration,
   ratchet_expiry: Option<Duration>,
@@ -43,12 +42,13 @@ pub struct CipherManager {
 }
 
 impl CipherManager {
-  pub fn new(clock: Instant, key_ratchet: Arc<RwLock<HashRatchet>>) -> Self {
+  pub fn new(clock: Arc<Instant>, key_ratchet: HashRatchet) -> Self {
+    let ratchet_creation: Duration = clock.as_ref().elapsed();
     Self {
       clock,
       key_ratchet,
       cryptor_generations: HashMap::new(),
-      ratchet_creation: clock.elapsed(),
+      ratchet_creation,
       ratchet_expiry: None,
       oldest_generation: 0,
       newest_generation: 0,
@@ -66,7 +66,7 @@ impl CipherManager {
     wrapped_big_nonce > self.newest_processed_nonce.unwrap() || self.missing_nonces.contains(&wrapped_big_nonce)
   }
 
-  pub fn get_cipher(&mut self, generation: u32) -> Option<&AeadCipher> {
+  pub fn get_cipher(&mut self, generation: u32) -> Option<&mut AeadCipher> {
     let _ = self.cleanup_expired_ciphers();
 
     if generation < self.oldest_generation {
@@ -97,7 +97,7 @@ impl CipherManager {
       self.cryptor_generations.insert(generation, ec_result.unwrap());
     }
 
-    Some(&self.cryptor_generations.get(&generation).unwrap().cipher)
+    Some(&mut self.cryptor_generations.get_mut(&generation).unwrap().cipher)
   }
 
   pub fn report_cipher_success(&mut self, generation: u32, nonce: u32) {
@@ -155,11 +155,9 @@ impl CipherManager {
     compute_wrapped_generation(self.oldest_generation, generation)
   }
 
-  fn make_expiring_cipher(&self, generation: u32) -> napi::Result<ExpiringCipher> {
+  fn make_expiring_cipher(&mut self, generation: u32) -> napi::Result<ExpiringCipher> {
     // Get the new key from the ratchet
-    let mut ratchet = self.key_ratchet.write()
-      .map_err(|err| Error::from_reason(format!("HashRatchet RwLock error: {err}")))?;
-    let (key, _nonce) = ratchet.get(generation)?;
+    let (key, _nonce) = self.key_ratchet.get(generation)?;
 
     // If we got frames out of order, we might have to create a cryptor for an old generation
     // In that case, create it with a non-infinite expiry time as we have already transitioned
@@ -189,12 +187,9 @@ impl CipherManager {
       expired
     });
 
-    // FIXME this should only really get the lock when we know we need to delete something, but for now this is ok
-    let mut ratchet = self.key_ratchet.write()
-      .map_err(|err| Error::from_reason(format!("HashRatchet RwLock error: {err}")))?;
     while self.oldest_generation < self.newest_generation && !self.cryptor_generations.contains_key(&self.oldest_generation) {
       trace!("Deleting key for old generation: {:?}", self.oldest_generation);
-      ratchet.erase(self.oldest_generation);
+      self.key_ratchet.erase(self.oldest_generation);
       self.oldest_generation += 1;
     }
 

@@ -2,9 +2,15 @@ use std::{collections::HashMap, time::Instant};
 
 use log::warn;
 
-use crate::cryptor::{codec_utils::validate_encrypted_frame, frame_processors::{serialize_unencrypted_ranges, unencrypted_ranges_size}, leb128::*, *};
-
-use super::{aead_cipher::AeadCipher, cryptor_manager::compute_wrapped_generation, frame_processors::OutboundFrameProcessor, hash_ratchet::HashRatchet, Codec, MediaType, RATCHET_GENERATION_SHIFT_BITS};
+use super::{
+  aead_cipher::AeadCipher,
+  codec_utils::validate_encrypted_frame,
+  cryptor_manager::compute_wrapped_generation,
+  frame_processors::{OutboundFrameProcessor, serialize_unencrypted_ranges, unencrypted_ranges_size},
+  hash_ratchet::HashRatchet,
+  leb128::*,
+  *
+};
 
 #[napi(object)]
 #[derive(Clone)]
@@ -27,7 +33,7 @@ pub struct Encryptor {
   current_key_generation: u32,
   truncated_nonce: u32,
   frame_processors: Vec<OutboundFrameProcessor>,
-  pub stats: HashMap<MediaType, EncryptionStats>
+  pub stats: HashMap<MediaType, EncryptionStats>,
 }
 
 impl Encryptor {
@@ -184,8 +190,7 @@ impl Encryptor {
     }
 
     let stats = self.stats.get_mut(&media_type).unwrap();
-    let now = Instant::now();
-    stats.duration += now.duration_since(start).as_micros() as u32;
+    stats.duration += start.elapsed().as_micros() as u32;
     if success {
       stats.successes += 1;
     } else {

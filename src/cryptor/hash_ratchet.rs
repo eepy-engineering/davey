@@ -1,17 +1,13 @@
 use std::collections::HashMap;
 use log::{debug, trace};
 use napi::Error;
-// use openmls::prelude::Ciphersuite;
 
 use super::mlspp_crypto::derive_tree_secret;
-
-// const RATCHET_CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMP256_AES128GCM_SHA256_P256;
 
 /// An implementation of libdave's HashRatchet.
 pub struct HashRatchet {
   next_secret: Vec<u8>,
   next_generation: u32,
-  // ratchet: RatchetSecret,
   cache: HashMap<u32, (Vec<u8>, Vec<u8>)>
 }
 

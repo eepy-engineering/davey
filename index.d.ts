@@ -59,11 +59,21 @@ export interface EncryptionStats {
   /** Maximum attempts reached at encryption */
   maxAttempts: number
 }
+export interface DecryptionStats {
+  /** Number of decryption successes */
+  successes: number
+  /** Number of decryption failures */
+  failures: number
+  /** Total decryption duration in microseconds */
+  duration: number
+  /** Total amounts of decryption attempts */
+  attempts: number
+}
 export interface SigningKeyPair {
   private: Buffer
   public: Buffer
 }
-export declare function generateSigningKeys(ciphersuite: number): SigningKeyPair
+export declare function generateP256Keypair(): SigningKeyPair
 export type DaveSession = DAVESession
 export declare class DAVESession {
   /**
@@ -163,10 +173,28 @@ export declare class DAVESession {
    */
   encryptOpus(packet: Buffer): Buffer
   /**
-   * Get the encryption stats of a media type
+   * Get encryption stats.
    * @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
    */
   getEncryptionStats(mediaType?: MediaType | undefined | null): EncryptionStats
+  /**
+   * Decrypt an E2EE packet.
+   * @param userId The user ID of the packet
+   * @param mediaType The type of media to decrypt
+   * @param packet The packet to decrypt
+   */
+  decrypt(userId: string, mediaType: MediaType, packet: Buffer): Buffer
+  /**
+   * Get decryption stats.
+   * @param userId The user ID
+   * @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
+   */
+  getDecryptionStats(userId: string, mediaType?: MediaType | undefined | null): DecryptionStats
+  /**
+   * Get the IDs of the users in the current group.
+   * @returns An array of user IDs, or an empty array if there is no group.
+   */
+  getUserIds(): Array<string>
   /** @ignore */
   toString(): string
 }

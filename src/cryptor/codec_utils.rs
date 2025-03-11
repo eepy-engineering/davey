@@ -1,5 +1,3 @@
-use std::cmp::min;
-
 use super::{frame_processors::OutboundFrameProcessor, Codec};
 
 
@@ -9,6 +7,8 @@ pub fn process_frame_opus(processor: &mut OutboundFrameProcessor, frame: &[u8]) 
   processor.add_encrypted_bytes(frame);
   true
 }
+
+// TODO finish codec_utils
 
 pub fn validate_encrypted_frame(processor: &OutboundFrameProcessor, frame: &[u8]) -> bool {
 	let codec = &processor.frame_codec;

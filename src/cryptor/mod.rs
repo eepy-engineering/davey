@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+pub const OPUS_SILENCE_PACKET: [u8; 3] = [0xF8, 0xFF, 0xFE];
+
 /** Magic marker ID */
 pub const MARKER_BYTES: [u8; 2] = [0xFA, 0xFA];
 
@@ -16,6 +18,7 @@ pub const TRANSFORM_PADDING_BYTES: usize = 64;
 
 /** Timing constants */
 pub const CIPHER_EXPIRY: Duration = Duration::new(10, 0);
+pub const RATCHET_EXPIRY: Duration = Duration::new(10, 0);
 
 /** Behavior constants */
 pub const MAX_GENERATION_GAP: u32 = 250;
@@ -50,3 +53,4 @@ pub(crate) mod leb128;
 pub(crate) mod frame_processors;
 pub(crate) mod codec_utils;
 pub(crate) mod mlspp_crypto;
+pub(crate) mod decryptor;

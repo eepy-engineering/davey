@@ -123,14 +123,14 @@ pub fn do_reconstruct(
 
 /// A frame processor for inbound (recieving) frames.
 pub struct InboundFrameProcessor {
-  encrypted: bool,
+  pub encrypted: bool,
   original_size: usize,
-  truncated_nonce: u32,
+  pub truncated_nonce: u32,
   unencrypted_ranges: Ranges,
-  authenticated: Vec<u8>,
-  ciphertext: Vec<u8>,
-  plaintext: Vec<u8>,
-  tag: Vec<u8>,
+  pub authenticated: Vec<u8>,
+  pub ciphertext: Vec<u8>,
+  pub plaintext: Vec<u8>,
+  pub tag: Vec<u8>,
 }
 
 impl InboundFrameProcessor {

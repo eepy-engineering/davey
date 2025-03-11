@@ -1,11 +1,11 @@
-use std::array::TryFromSliceError;
+use std::{array::TryFromSliceError, collections::HashMap};
 use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error, Status};
 use openmls::{group::*, prelude::{hash_ref::ProposalRef, tls_codec::Serialize, *}};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use log::{debug, trace, warn};
 
-use crate::{cryptor::{encryptor::{EncryptionStats, Encryptor}, hash_ratchet::HashRatchet, Codec, MediaType}, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode, DAVEProtocolVersion};
+use crate::{cryptor::{decryptor::{DecryptionStats, Decryptor}, encryptor::{EncryptionStats, Encryptor}, hash_ratchet::HashRatchet, Codec, MediaType, AES_GCM_128_KEY_BYTES, OPUS_SILENCE_PACKET}, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode, DAVEProtocolVersion};
 
 const USER_MEDIA_KEY_BASE_LABEL: &str = "Discord Secure Frames v0";
 
@@ -83,6 +83,7 @@ pub struct DaveSession {
 
   privacy_code: String,
   encryptor: Encryptor,
+  decryptors: HashMap<u64, Decryptor>,
 }
 
 // TODO allow for specifying a signing key
@@ -118,7 +119,8 @@ impl DaveSession {
       status: SessionStatus::INACTIVE,
       ready: false,
       privacy_code: String::new(),
-      encryptor: Encryptor::new()
+      encryptor: Encryptor::new(),
+      decryptors: HashMap::new(),
     })
   }
 
@@ -149,6 +151,7 @@ impl DaveSession {
     self.credential_with_key = credential_with_key;
     self.privacy_code.clear();
     self.encryptor = Encryptor::new();
+    self.decryptors.clear();
 
     if self.external_sender.is_some() {
       self.create_pending_group()?;
@@ -651,7 +654,32 @@ impl DaveSession {
   }
 
   pub fn update_ratchets(&mut self) -> napi::Result<()> {
-    debug!("Updating MLS ratchets");
+    if self.group.is_none() {
+      return Err(Error::from_reason("Cannot update ratchets without a group".to_string()));
+    }
+    let group = self.group.as_ref().unwrap();
+    debug!("Updating MLS ratchets for {:?} users", group.members().count());
+
+    // Update decryptors
+    for member in group.members() {
+      let user_id_bytes = TryInto::<[u8; 8]>::try_into(member.credential.serialized_content());
+      if user_id_bytes.is_err() {
+        warn!("Failed to get uid for member index {:?}", member.index);
+        continue;
+      }
+      let uid = u64::from_be_bytes(user_id_bytes.unwrap());
+
+      if !self.decryptors.contains_key(&uid) {
+        debug!("Creating decryptor for user {uid:?}");
+        self.decryptors.insert(uid, Decryptor::new());
+      }
+
+      let ratchet = self.get_key_ratchet(uid)?;
+      let decryptor = self.decryptors.get_mut(&uid);
+      if let Some(decryptor) = decryptor {
+        decryptor.transition_to_key_ratchet(ratchet);
+      }
+    }
 
     // Update encryptor
     let user_id = self.user_id_as_u64()?;
@@ -677,7 +705,7 @@ impl DaveSession {
     }
 
     let base_secret = self.group.as_ref().unwrap()
-      .export_secret(&self.provider, USER_MEDIA_KEY_BASE_LABEL, &user_id.to_le_bytes(), 16)
+      .export_secret(&self.provider, USER_MEDIA_KEY_BASE_LABEL, &user_id.to_le_bytes(), AES_GCM_128_KEY_BYTES)
       .map_err(|err| Error::from_reason(format!("Failed to export secret: {err}")))?;
 
     trace!("Got base secret for user {:?}: {:?}", user_id, base_secret);
@@ -692,6 +720,12 @@ impl DaveSession {
   pub fn encrypt(&mut self, media_type: MediaType, codec: Codec, packet: Buffer) -> napi::Result<Buffer> {
     if !self.ready {
       return Err(Error::from_reason("Session is not ready to process frames".to_string()))
+    }
+
+    // Return the packet back to the client (passthrough) if the packet is a silence packet
+    // This may change in the future, see: https://daveprotocol.com/#silence-packets
+    if packet.len() == OPUS_SILENCE_PACKET.len() && packet.to_vec() == OPUS_SILENCE_PACKET.to_vec() {
+      return Ok(packet)
     }
 
     let mut out_size: usize = 0;
@@ -718,11 +752,78 @@ impl DaveSession {
     self.encrypt(MediaType::AUDIO, Codec::OPUS, packet)
   }
 
-  /// Get the encryption stats of a media type
+  /// Get encryption stats.
   /// @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
   #[napi]
-  pub fn get_encryption_stats(&self, media_type: Option<MediaType>) -> EncryptionStats {
-    self.encryptor.stats.get(&media_type.unwrap_or(MediaType::AUDIO)).unwrap().clone()
+  pub fn get_encryption_stats(&self, media_type: Option<MediaType>) -> napi::Result<EncryptionStats> {
+    self.encryptor.stats
+      .get(&media_type.unwrap_or(MediaType::AUDIO))
+      .ok_or(Error::from_reason("Stats not found for that media type".to_string()))
+      .map(|s| s.clone())
+  }
+
+  /// Decrypt an E2EE packet.
+  /// @param userId The user ID of the packet
+  /// @param mediaType The type of media to decrypt
+  /// @param packet The packet to decrypt
+  #[napi]
+  pub fn decrypt(&mut self, user_id: String, media_type: MediaType, packet: Buffer) -> napi::Result<Buffer> {
+    let uid = user_id.parse::<u64>()
+      .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?;
+
+    let decryptor = self.decryptors.get_mut(&uid);
+    if decryptor.is_none() {
+      return Err(Error::from_reason("No decryptor found for that user".to_string()));
+    }
+    let decryptor = decryptor.unwrap();
+
+    let mut frame = Vec::new();
+    frame.resize(Decryptor::get_max_plaintext_byte_size(media_type, packet.len()), 0);
+    
+    let frame_length = decryptor.decrypt(media_type, &packet, &mut frame);
+    frame.resize(frame_length, 0);
+    if frame_length <= 0 {
+      return Err(Error::from_reason("DAVE decryption failure".to_string()));
+    }
+
+    Ok(frame.into())
+  }
+
+  /// Get decryption stats.
+  /// @param userId The user ID
+  /// @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
+  #[napi]
+  pub fn get_decryption_stats(&self, user_id: String, media_type: Option<MediaType>) -> napi::Result<DecryptionStats> {
+    let uid = user_id.parse::<u64>()
+      .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?;
+    
+    let decryptor = self.decryptors.get(&uid);
+    if decryptor.is_none() {
+      return Err(Error::from_reason("No decryptor found for that user".to_string()));
+    }
+
+    decryptor.unwrap().stats
+      .get(&media_type.unwrap_or(MediaType::AUDIO))
+      .ok_or(Error::from_reason("Stats not found for that media type".to_string()))
+      .map(|s| s.clone())
+  }
+
+  /// Get the IDs of the users in the current group.
+  /// @returns An array of user IDs, or an empty array if there is no group.
+  #[napi]
+  pub fn get_user_ids(&self) -> napi::Result<Vec<String>> {
+    if self.group.is_none() {
+      return Ok(vec![]);
+    }
+
+    let user_ids = self.group.as_ref().unwrap().members().map(|member| {
+      let uid = u64::from_be_bytes(
+        member.credential.serialized_content().try_into().or::<TryFromSliceError>(Ok([0, 0, 0, 0, 0, 0, 0, 0])).unwrap()
+      );
+      uid.to_string()
+    }).collect();
+
+    Ok(user_ids)
   }
 
   /// @ignore

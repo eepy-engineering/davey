@@ -19,10 +19,9 @@ impl AeadCipher {
     Ok(tag.to_vec())
   }
 
-  pub fn decrypt(&mut self, ciphertext: &[u8], nonce: &[u8], aad: &[u8], tag: &[u8]) -> napi::Result<Vec<u8>> {
-    let mut buffer = ciphertext.to_vec();
-    self.key.decrypt_in_place_detached(nonce.into(), aad, buffer.as_mut_slice(), tag.into())
+  pub fn decrypt(&mut self, buffer: &mut [u8], nonce: &[u8], aad: &[u8], tag: &[u8]) -> napi::Result<()> {
+    self.key.decrypt_in_place_detached(nonce.into(), aad, buffer, tag.into())
       .map_err(|err| Error::from_reason(format!("AeadCipher decrypt error: {err}")))?;
-    Ok(buffer)
+    Ok(())
   }
 }
