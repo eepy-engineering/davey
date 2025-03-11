@@ -1,6 +1,6 @@
 import test from 'ava';
 
-import { generateP256Keypair } from '..';
+import { generateP256Keypair } from '../index';
 
 test('returns valid keys', (t) => {
   const result = generateP256Keypair();
