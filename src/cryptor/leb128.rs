@@ -2,7 +2,7 @@
 
 pub fn leb128_size(value: u64) -> usize {
   let mut size: usize = 0;
-  let mut value = value.clone();
+  let mut value = value;
   while value >= 0x80 {
     size += 1;
     value >>= 7;
@@ -16,12 +16,12 @@ pub fn read_leb128(slice: &[u8]) -> Option<(u64, usize)> {
   let mut size = 0;
 
   for &byte in slice {
-      value |= ((byte & 0x7F) as u64) << shift;
-      size += 1;
-      if byte & 0x80 == 0 {
-          return Some((value, size));
-      }
-      shift += 7;
+    value |= ((byte & 0x7F) as u64) << shift;
+    size += 1;
+    if byte & 0x80 == 0 {
+      return Some((value, size));
+    }
+    shift += 7;
   }
 
   None

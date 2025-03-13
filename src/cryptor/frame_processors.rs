@@ -35,7 +35,10 @@ pub fn serialize_unencrypted_ranges(unencrypted_ranges: &Ranges, buffer: &mut [u
   write_at as u8
 }
 
-pub fn deserialize_unencrypted_ranges(read_at: &[u8], unencrypted_ranges: &mut Ranges) -> Option<u8> {
+pub fn deserialize_unencrypted_ranges(
+  read_at: &[u8],
+  unencrypted_ranges: &mut Ranges,
+) -> Option<u8> {
   let mut bytes_read = 0;
   while bytes_read < read_at.len() {
     let offset_read = read_leb128(&read_at[bytes_read..]);
@@ -62,7 +65,10 @@ pub fn deserialize_unencrypted_ranges(read_at: &[u8], unencrypted_ranges: &mut R
       return None;
     }
 
-    unencrypted_ranges.push(Range { offset: offset as usize, size: size as usize });
+    unencrypted_ranges.push(Range {
+      offset: offset as usize,
+      size: size as usize,
+    });
   }
 
   Some(bytes_read as u8)
@@ -70,7 +76,7 @@ pub fn deserialize_unencrypted_ranges(read_at: &[u8], unencrypted_ranges: &mut R
 
 pub fn validate_unencrypted_ranges(unencrypted_ranges: &Ranges, frame_size: usize) -> bool {
   if unencrypted_ranges.is_empty() {
-    return true
+    return true;
   }
 
   for i in 0..unencrypted_ranges.len() {
@@ -84,7 +90,7 @@ pub fn validate_unencrypted_ranges(unencrypted_ranges: &Ranges, frame_size: usiz
     };
     let current_end = current.offset.saturating_add(current.size);
     if current_end > max_end {
-      return false
+      return false;
     }
   }
 
@@ -130,7 +136,6 @@ pub fn do_reconstruct(
   frame_index
 }
 
-
 /// A frame processor for inbound (recieving) frames.
 pub struct InboundFrameProcessor {
   pub encrypted: bool,
@@ -170,43 +175,44 @@ impl InboundFrameProcessor {
   pub fn parse_frame(&mut self, frame: &[u8]) {
     self.clear();
 
-    const MIN_SUPPLEMENTAL_BYTES_SIZE: usize = AES_GCM_127_TRUNCATED_TAG_BYTES as usize + 1 + 2;
+    const MIN_SUPPLEMENTAL_BYTES_SIZE: usize = AES_GCM_127_TRUNCATED_TAG_BYTES + 1 + 2;
     if frame.len() < MIN_SUPPLEMENTAL_BYTES_SIZE {
       warn!("Encrypted frame is too small to contain min supplemental bytes");
       return;
     }
 
-	  // Check the frame ends with the magic marker
+    // Check the frame ends with the magic marker
     let magic_marker_buffer = &frame[frame.len() - MARKER_BYTES.len()..];
     if magic_marker_buffer != MARKER_BYTES {
       return;
     }
 
-	  // Read the supplemental bytes size
-    let bytes_size_buffer = &frame[frame.len() - MARKER_BYTES.len() - 1..frame.len() - MARKER_BYTES.len()];
+    // Read the supplemental bytes size
+    let bytes_size_buffer =
+      &frame[frame.len() - MARKER_BYTES.len() - 1..frame.len() - MARKER_BYTES.len()];
     let bytes_size = bytes_size_buffer[0] as usize;
 
     // Check the frame is large enough to contain the supplemental bytes
-	  if frame.len() < bytes_size {
+    if frame.len() < bytes_size {
       warn!("Encrypted frame is too small to contain supplemental bytes");
       return;
     }
 
     // Check that supplemental bytes size is large enough to contain the supplemental bytes
-	  if bytes_size < MIN_SUPPLEMENTAL_BYTES_SIZE {
+    if bytes_size < MIN_SUPPLEMENTAL_BYTES_SIZE {
       warn!("Supplemental bytes size is too small to contain supplemental bytes");
       return;
     }
 
     let supplemental_bytes_buffer = &frame[frame.len() - bytes_size..];
 
-	  // Read the tag
+    // Read the tag
     self.tag = supplemental_bytes_buffer[..AES_GCM_127_TRUNCATED_TAG_BYTES].to_vec();
 
-	  // Read the nonce
+    // Read the nonce
     let nonce_buffer = &supplemental_bytes_buffer[AES_GCM_127_TRUNCATED_TAG_BYTES..];
-    let read_at = &nonce_buffer[..nonce_buffer.len() - &MARKER_BYTES.len() - 1];
-    let nonce_read = read_leb128(&read_at);
+    let read_at = &nonce_buffer[..nonce_buffer.len() - MARKER_BYTES.len() - 1];
+    let nonce_read = read_leb128(read_at);
     if nonce_read.is_none() {
       warn!("Failed to read truncated nonce");
       return;
@@ -217,7 +223,8 @@ impl InboundFrameProcessor {
     // Read the unencrypted ranges
     let mut unencrypted_ranges = Vec::new();
     if read_at.len() > nonce_size {
-      let bytes_read = deserialize_unencrypted_ranges(&read_at[nonce_size..], &mut unencrypted_ranges);
+      let bytes_read =
+        deserialize_unencrypted_ranges(&read_at[nonce_size..], &mut unencrypted_ranges);
       if bytes_read.is_none() {
         warn!("Failed to read unencrypted ranges");
         return;
@@ -254,7 +261,7 @@ impl InboundFrameProcessor {
       self.add_ciphertext_bytes(&frame[frame_index..actual_frame_size]);
     }
 
-	  // Make sure the plaintext buffer is the same size as the ciphertext buffer
+    // Make sure the plaintext buffer is the same size as the ciphertext buffer
     self.plaintext.resize(self.ciphertext.len(), 0);
 
     // We've successfully parsed the frame
@@ -273,7 +280,12 @@ impl InboundFrameProcessor {
       return 0;
     }
 
-    do_reconstruct(&self.unencrypted_ranges, &self.authenticated, &self.plaintext, frame)
+    do_reconstruct(
+      &self.unencrypted_ranges,
+      &self.authenticated,
+      &self.plaintext,
+      frame,
+    )
   }
 
   fn add_authenticated_bytes(&mut self, data: &[u8]) {
@@ -329,13 +341,13 @@ impl OutboundFrameProcessor {
     match self.frame_codec {
       Codec::OPUS => {
         success = process_frame_opus(self, frame);
-      },
+      }
       _ => {
         // TODO move this to a result rather than a panic
         panic!("Unsupported codec for frame encryption");
       }
     }
-    
+
     if !success {
       self.frame_index = 0;
       self.unencrypted_bytes.clear();
@@ -353,7 +365,12 @@ impl OutboundFrameProcessor {
       return 0;
     }
 
-    do_reconstruct(&self.unencrypted_ranges, &self.unencrypted_bytes, &self.ciphertext_bytes, frame)
+    do_reconstruct(
+      &self.unencrypted_ranges,
+      &self.unencrypted_bytes,
+      &self.ciphertext_bytes,
+      frame,
+    )
   }
 
   fn add_unencrypted_bytes(&mut self, data: &[u8]) {

@@ -1,33 +1,60 @@
-use std::{array::TryFromSliceError, collections::HashMap};
-use napi::{bindgen_prelude::{AsyncTask, Buffer}, Error, Status};
-use openmls::{group::*, prelude::{hash_ref::ProposalRef, tls_codec::Serialize, *}};
+use log::{debug, trace, warn};
+use napi::{
+  bindgen_prelude::{AsyncTask, Buffer},
+  Error, Status,
+};
+use openmls::{
+  group::*,
+  prelude::{hash_ref::ProposalRef, tls_codec::Serialize, *},
+};
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
-use log::{debug, trace, warn};
+use std::collections::HashMap;
 
-use crate::{cryptor::{decryptor::{DecryptionStats, Decryptor}, encryptor::{EncryptionStats, Encryptor}, hash_ratchet::HashRatchet, Codec, MediaType, AES_GCM_128_KEY_BYTES, OPUS_SILENCE_PACKET}, generate_displayable_code_internal, AsyncPairwiseFingerprintSession, AsyncSessionVerificationCode, DAVEProtocolVersion};
+use crate::{
+  cryptor::{
+    decryptor::{DecryptionStats, Decryptor},
+    encryptor::{EncryptionStats, Encryptor},
+    hash_ratchet::HashRatchet,
+    Codec, MediaType, AES_GCM_128_KEY_BYTES, OPUS_SILENCE_PACKET,
+  },
+  generate_displayable_code_internal, AsyncPairwiseFingerprintSession,
+  AsyncSessionVerificationCode, DAVEProtocolVersion,
+};
 
 const USER_MEDIA_KEY_BASE_LABEL: &str = "Discord Secure Frames v0";
 
 /// Gets the [`Ciphersuite`] for a [`DAVEProtocolVersion`].
-pub fn dave_protocol_version_to_ciphersuite(protocol_version: DAVEProtocolVersion) -> Result<Ciphersuite, Error> {
+pub fn dave_protocol_version_to_ciphersuite(
+  protocol_version: DAVEProtocolVersion,
+) -> Result<Ciphersuite, Error> {
   match protocol_version {
     1 => Ok(Ciphersuite::MLS_128_DHKEMP256_AES128GCM_SHA256_P256),
-    _ => Err(Error::from_reason("Unsupported protocol version".to_string())),
+    _ => Err(Error::from_reason(
+      "Unsupported protocol version".to_string(),
+    )),
   }
 }
 
 /// Gets the [`Capabilities`] for a [`DAVEProtocolVersion`].
-pub fn dave_protocol_version_to_capabilities(protocol_version: DAVEProtocolVersion) -> Result<Capabilities, Error> {
+pub fn dave_protocol_version_to_capabilities(
+  protocol_version: DAVEProtocolVersion,
+) -> Result<Capabilities, Error> {
   match protocol_version {
-    1 => Ok(Capabilities::builder()
-      .versions(vec![ProtocolVersion::Mls10])
-      .ciphersuites(vec![dave_protocol_version_to_ciphersuite(protocol_version)?])
-      .extensions(vec![])
-      .proposals(vec![])
-      .credentials(vec![CredentialType::Basic])
-      .build()),
-    _ => Err(Error::from_reason("Unsupported protocol version".to_string())),
+    1 => Ok(
+      Capabilities::builder()
+        .versions(vec![ProtocolVersion::Mls10])
+        .ciphersuites(vec![dave_protocol_version_to_ciphersuite(
+          protocol_version,
+        )?])
+        .extensions(vec![])
+        .proposals(vec![])
+        .credentials(vec![CredentialType::Basic])
+        .build(),
+    ),
+    _ => Err(Error::from_reason(
+      "Unsupported protocol version".to_string(),
+    )),
   }
 }
 
@@ -45,26 +72,26 @@ fn generate_key_fingerprint(version: u16, user_id: u64, key: Vec<u8>) -> Vec<u8>
 pub const DAVE_PROTOCOL_VERSION: u16 = 1;
 
 #[napi]
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum ProposalsOperationType {
   APPEND = 0,
-  REVOKE = 1
+  REVOKE = 1,
 }
 
 #[napi]
-#[derive(Debug,PartialEq,Clone,Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 #[allow(non_camel_case_types)]
 pub enum SessionStatus {
   INACTIVE = 0,
   PENDING = 1,
   AWAITING_RESPONSE = 2,
-  ACTIVE = 3
+  ACTIVE = 3,
 }
 
 #[napi(object)]
 pub struct ProposalsResult {
-	pub commit: Option<Buffer>,
-	pub welcome: Option<Buffer>,
+  pub commit: Option<Buffer>,
+  pub welcome: Option<Buffer>,
 }
 
 #[napi(js_name = "DAVESession")]
@@ -96,10 +123,19 @@ impl DaveSession {
   #[napi(constructor)]
   pub fn new(protocol_version: u16, user_id: String, channel_id: String) -> napi::Result<Self> {
     let ciphersuite = dave_protocol_version_to_ciphersuite(protocol_version)?;
-    let credential = BasicCredential::new(user_id.parse::<u64>()
-      .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?.to_be_bytes().into());
-    let group_id = GroupId::from_slice(&channel_id.parse::<u64>()
-      .map_err(|_| Error::new(Status::InvalidArg, "Invalid channel id".to_string()))?.to_be_bytes());
+    let credential = BasicCredential::new(
+      user_id
+        .parse::<u64>()
+        .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?
+        .to_be_bytes()
+        .into(),
+    );
+    let group_id = GroupId::from_slice(
+      &channel_id
+        .parse::<u64>()
+        .map_err(|_| Error::new(Status::InvalidArg, "Invalid channel id".to_string()))?
+        .to_be_bytes(),
+    );
     let signer = SignatureKeyPair::new(ciphersuite.signature_algorithm())
       .map_err(|err| Error::from_reason(format!("Error generating a signature key pair: {err}")))?;
     let credential_with_key = CredentialWithKey {
@@ -129,14 +165,28 @@ impl DaveSession {
   /// @param userId The user ID of the session.
   /// @param channelId The channel ID of the session.
   #[napi]
-  pub fn reinit(&mut self, protocol_version: u16, user_id: String, channel_id: String) -> napi::Result<()> {
+  pub fn reinit(
+    &mut self,
+    protocol_version: u16,
+    user_id: String,
+    channel_id: String,
+  ) -> napi::Result<()> {
     self.reset()?;
-  
+
     let ciphersuite = dave_protocol_version_to_ciphersuite(protocol_version)?;
-    let credential = BasicCredential::new(user_id.parse::<u64>()
-      .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?.to_be_bytes().into());
-    let group_id = GroupId::from_slice(&channel_id.parse::<u64>()
-      .map_err(|_| Error::new(Status::InvalidArg, "Invalid channel id".to_string()))?.to_be_bytes());
+    let credential = BasicCredential::new(
+      user_id
+        .parse::<u64>()
+        .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?
+        .to_be_bytes()
+        .into(),
+    );
+    let group_id = GroupId::from_slice(
+      &channel_id
+        .parse::<u64>()
+        .map_err(|_| Error::new(Status::InvalidArg, "Invalid channel id".to_string()))?
+        .to_be_bytes(),
+    );
     let signer = SignatureKeyPair::new(ciphersuite.signature_algorithm())
       .map_err(|err| Error::from_reason(format!("Error generating a signature key pair: {err}")))?;
     let credential_with_key = CredentialWithKey {
@@ -168,13 +218,20 @@ impl DaveSession {
 
     // Delete group
     if self.group.is_some() {
-      self.group.take().unwrap()
+      self
+        .group
+        .take()
+        .unwrap()
         .delete(self.provider.storage())
         .map_err(|err| Error::from_reason(format!("Error clearing group: {err}")))?;
     }
-    
+
     // Clear storage
-    self.provider.storage().values.write()
+    self
+      .provider
+      .storage()
+      .values
+      .write()
       .map_err(|err| Error::from_reason(format!("MemoryStorage error: {err}")))?
       .clear();
 
@@ -198,8 +255,12 @@ impl DaveSession {
 
   fn user_id_as_u64(&self) -> napi::Result<u64> {
     Ok(u64::from_be_bytes(
-      self.credential_with_key.credential.serialized_content().try_into()
-        .map_err(|err| Error::from_reason(format!("Failed to convert our user id: {err}")))?
+      self
+        .credential_with_key
+        .credential
+        .serialized_content()
+        .try_into()
+        .map_err(|err| Error::from_reason(format!("Failed to convert our user id: {err}")))?,
     ))
   }
 
@@ -208,9 +269,13 @@ impl DaveSession {
   pub fn channel_id(&self) -> napi::Result<String> {
     Ok(
       u64::from_be_bytes(
-        self.group_id.as_slice().try_into()
-        .map_err(|err| Error::from_reason(format!("Failed to convert channel id: {err}")))?
-      ).to_string()
+        self
+          .group_id
+          .as_slice()
+          .try_into()
+          .map_err(|err| Error::from_reason(format!("Failed to convert channel id: {err}")))?,
+      )
+      .to_string(),
     )
   }
 
@@ -236,10 +301,19 @@ impl DaveSession {
   #[napi]
   pub fn get_epoch_authenticator(&self) -> napi::Result<Buffer> {
     if self.group.is_none() || self.status == SessionStatus::PENDING {
-      return Err(Error::from_reason("Cannot epoch authenticator without an established MLS group".to_string()));
+      return Err(Error::from_reason(
+        "Cannot epoch authenticator without an established MLS group".to_string(),
+      ));
     }
 
-    Ok(Buffer::from(self.group.as_ref().unwrap().epoch_authenticator().as_slice()))
+    Ok(Buffer::from(
+      self
+        .group
+        .as_ref()
+        .unwrap()
+        .epoch_authenticator()
+        .as_slice(),
+    ))
   }
 
   /// Get the voice privacy code of this session's group.
@@ -259,7 +333,9 @@ impl DaveSession {
   #[napi]
   pub fn set_external_sender(&mut self, external_sender_data: Buffer) -> napi::Result<()> {
     if self.status == SessionStatus::AWAITING_RESPONSE || self.status == SessionStatus::ACTIVE {
-      return Err(Error::from_reason("Cannot set an external sender after joining an established group".to_string()));
+      return Err(Error::from_reason(
+        "Cannot set an external sender after joining an established group".to_string(),
+      ));
     }
 
     let external_sender = ExternalSender::tls_deserialize_exact_bytes(&external_sender_data)
@@ -289,16 +365,26 @@ impl DaveSession {
 
     // This key package is stored in the provider for later
     let key_package = KeyPackage::builder()
-        .key_package_extensions(Extensions::empty())
-        .leaf_node_capabilities(dave_protocol_version_to_capabilities(self.protocol_version).unwrap())
-        .key_package_lifetime(lifetime)
-        .build(self.ciphersuite, &self.provider, &self.signer, self.credential_with_key.clone())
-        .map_err(|err| Error::from_reason(format!("Error creating key package: {err}")))?;
+      .key_package_extensions(Extensions::empty())
+      .leaf_node_capabilities(dave_protocol_version_to_capabilities(self.protocol_version).unwrap())
+      .key_package_lifetime(lifetime)
+      .build(
+        self.ciphersuite,
+        &self.provider,
+        &self.signer,
+        self.credential_with_key.clone(),
+      )
+      .map_err(|err| Error::from_reason(format!("Error creating key package: {err}")))?;
 
-    let buffer = key_package.key_package().tls_serialize_detached()
+    let buffer = key_package
+      .key_package()
+      .tls_serialize_detached()
       .map_err(|err| Error::from_reason(format!("Error serializing key package: {err}")))?;
 
-    debug!("Created key package for channel {:?}.", self.channel_id().ok().unwrap_or_default());
+    debug!(
+      "Created key package for channel {:?}.",
+      self.channel_id().ok().unwrap_or_default()
+    );
 
     Ok(Buffer::from(buffer))
   }
@@ -307,9 +393,12 @@ impl DaveSession {
     if self.external_sender.is_none() {
       return Err(Error::from_reason("No external sender set".to_string()));
     }
-  
+
     let mls_group_create_config = MlsGroupCreateConfig::builder()
-      .with_group_context_extensions(Extensions::single(Extension::ExternalSenders(vec![self.external_sender.clone().unwrap()])))
+      .with_group_context_extensions(Extensions::single(Extension::ExternalSenders(vec![self
+        .external_sender
+        .clone()
+        .unwrap()])))
       .map_err(|err| Error::from_reason(format!("Error adding external sender to group: {err}")))?
       .ciphersuite(self.ciphersuite)
       .capabilities(dave_protocol_version_to_capabilities(self.protocol_version).unwrap())
@@ -318,18 +407,21 @@ impl DaveSession {
       .build();
 
     let group = MlsGroup::new_with_group_id(
-        &self.provider,
-        &self.signer,
-        &mls_group_create_config,
-        self.group_id.clone(),
-        self.credential_with_key.clone(),
-      )
-      .map_err(|err| Error::from_reason(format!("Error creating a group: {err}")))?;
+      &self.provider,
+      &self.signer,
+      &mls_group_create_config,
+      self.group_id.clone(),
+      self.credential_with_key.clone(),
+    )
+    .map_err(|err| Error::from_reason(format!("Error creating a group: {err}")))?;
 
     self.group = Some(group);
     self.status = SessionStatus::PENDING;
 
-    debug!("Created pending group for channel {:?}.", self.channel_id().ok().unwrap_or_default());
+    debug!(
+      "Created pending group for channel {:?}.",
+      self.channel_id().ok().unwrap_or_default()
+    );
 
     Ok(())
   }
@@ -341,9 +433,15 @@ impl DaveSession {
   /// @returns A commit (if there were queued proposals) and a welcome (if a member was added) that should be used to send an [opcode 28: dave_mls_commit_welcome](https://daveprotocol.com/#dave_mls_commit_welcome-28) ONLY if a commit was returned.
   /// @see https://daveprotocol.com/#dave_mls_proposals-27
   #[napi]
-  pub fn process_proposals(&mut self, operation_type: ProposalsOperationType, proposals: Buffer) -> napi::Result<ProposalsResult> {
+  pub fn process_proposals(
+    &mut self,
+    operation_type: ProposalsOperationType,
+    proposals: Buffer,
+  ) -> napi::Result<ProposalsResult> {
     if self.group.is_none() {
-      return Err(Error::from_reason("Cannot process proposals without a group".to_string()));
+      return Err(Error::from_reason(
+        "Cannot process proposals without a group".to_string(),
+      ));
     }
 
     let group = self.group.as_mut().unwrap();
@@ -357,12 +455,11 @@ impl DaveSession {
 
     if operation_type == ProposalsOperationType::APPEND {
       let mut remaining_bytes: &[u8] = &proposals;
-      while remaining_bytes.len() != 0 {
-        let (mls_message, leftover) =
-          MlsMessageIn::tls_deserialize_bytes(&remaining_bytes)
+      while !remaining_bytes.is_empty() {
+        let (mls_message, leftover) = MlsMessageIn::tls_deserialize_bytes(remaining_bytes)
           .map_err(|err| Error::from_reason(format!("Error deserializing MLS message: {err}")))?;
         remaining_bytes = leftover;
-  
+
         let protocol_message = mls_message
           .try_into_protocol_message()
           .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_string()))?;
@@ -375,43 +472,63 @@ impl DaveSession {
           ProcessedMessageContent::ProposalMessage(proposal) => {
             if let Proposal::Add(add_proposal) = proposal.proposal() {
               let incoming_user_id = u64::from_be_bytes(
-                add_proposal.key_package().leaf_node().credential().serialized_content().try_into()
-                  .map_err(|err| Error::from_reason(format!("Failed to convert proposal user id: {err}")))?
+                add_proposal
+                  .key_package()
+                  .leaf_node()
+                  .credential()
+                  .serialized_content()
+                  .try_into()
+                  .map_err(|err| {
+                    Error::from_reason(format!("Failed to convert proposal user id: {err}"))
+                  })?,
               );
-              debug!("Storing add proposal for user {:?}", incoming_user_id.to_string());
+              debug!(
+                "Storing add proposal for user {:?}",
+                incoming_user_id.to_string()
+              );
               commit_adds_members = true;
             } else if let Proposal::Remove(remove_proposal) = proposal.proposal() {
               let leaf_index = remove_proposal.removed();
               let member = group.member(leaf_index);
               let outgoing_user_id = {
-                if member.is_some() {
+                if let Some(member) = member {
                   u64::from_be_bytes(
-                    member.unwrap().serialized_content().try_into()
-                      .or::<TryFromSliceError>(Ok([0, 0, 0, 0, 0, 0, 0, 0])).unwrap()
+                    member
+                      .serialized_content()
+                      .try_into()
+                      .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0])
                   )
                 } else {
                   0u64
                 }
               };
-              debug!("Storing remove proposal for user {:?} (leaf index: {:?})", outgoing_user_id, leaf_index.u32());
+              debug!(
+                "Storing remove proposal for user {:?} (leaf index: {:?})",
+                outgoing_user_id,
+                leaf_index.u32()
+              );
             }
             group
               .store_pending_proposal(self.provider.storage(), *proposal)
               .map_err(|err| Error::from_reason(format!("Could not store proposal: {err}")))?;
           }
-          _ => return Err(Error::from_reason("ProcessedMessage is not a ProposalMessage".to_string())),
+          _ => {
+            return Err(Error::from_reason(
+              "ProcessedMessage is not a ProposalMessage".to_string(),
+            ))
+          }
         }
       }
     } else {
       let mut remaining_bytes: &[u8] = &proposals;
-      while remaining_bytes.len() != 0 {
-        let (proposal_ref, leftover) =
-          ProposalRef::tls_deserialize_bytes(&remaining_bytes)
+      while !remaining_bytes.is_empty() {
+        let (proposal_ref, leftover) = ProposalRef::tls_deserialize_bytes(remaining_bytes)
           .map_err(|err| Error::from_reason(format!("Error deserializing proposal ref: {err}")))?;
         remaining_bytes = leftover;
 
         debug!("Removing pending proposal {:?}", proposal_ref);
-        group.remove_pending_proposal(self.provider.storage(), &proposal_ref)
+        group
+          .remove_pending_proposal(self.provider.storage(), &proposal_ref)
           .map_err(|err| Error::from_reason(format!("Error revoking proposal: {err}")))?;
       }
     }
@@ -420,23 +537,29 @@ impl DaveSession {
     let queued_proposal = group.pending_proposals().next();
     if queued_proposal.is_none() {
       debug!("No proposals left to commit, reverting to previous state");
-      group.clear_pending_commit(self.provider.storage())
-        .map_err(|err| Error::from_reason(format!("Error removing previously pending commit: {err}")))?;
+      group
+        .clear_pending_commit(self.provider.storage())
+        .map_err(|err| {
+          Error::from_reason(format!("Error removing previously pending commit: {err}"))
+        })?;
       if self.status == SessionStatus::AWAITING_RESPONSE {
         // FIXME should pending groups have revoked proposals and still be pending? id assume the voice server signals to recreate the group
         self.status = SessionStatus::ACTIVE
       }
       return Ok(ProposalsResult {
         commit: None,
-        welcome: None
-      })
+        welcome: None,
+      });
     }
 
     // libdave seems to overwrite pendingGroupCommit_ and then not use it anywhere else...
     if group.pending_commit().is_some() {
       warn!("A pending commit was already created! Removing...");
-      group.clear_pending_commit(self.provider.storage())
-        .map_err(|err| Error::from_reason(format!("Error removing previously pending commit: {err}")))?;
+      group
+        .clear_pending_commit(self.provider.storage())
+        .map_err(|err| {
+          Error::from_reason(format!("Error removing previously pending commit: {err}"))
+        })?;
     }
 
     let (commit, welcome, _group_info) = group
@@ -449,29 +572,33 @@ impl DaveSession {
 
     if commit_adds_members {
       match welcome {
-        Some(mls_message_out) => {
-          match mls_message_out.into_welcome() {
-            Some(welcome) => {
-              welcome_buffer = Some(
-                Buffer::from(
-                  welcome.tls_serialize_detached()
-                    .map_err(|err| Error::from_reason(format!("Error serializing welcome: {err}")))?
-                )
-              )
-            },
-            _ => return Err(Error::from_reason("MLSMessage was not a Welcome".to_string())),
+        Some(mls_message_out) => match mls_message_out.into_welcome() {
+          Some(welcome) => {
+            welcome_buffer = Some(Buffer::from(welcome.tls_serialize_detached().map_err(
+              |err| Error::from_reason(format!("Error serializing welcome: {err}")),
+            )?))
+          }
+          _ => {
+            return Err(Error::from_reason(
+              "MLSMessage was not a Welcome".to_string(),
+            ))
           }
         },
-        _ => return Err(Error::from_reason("Welcome was not returned when there are new members".to_string())),
+        _ => {
+          return Err(Error::from_reason(
+            "Welcome was not returned when there are new members".to_string(),
+          ))
+        }
       }
     }
 
-    let commit_buffer = commit.tls_serialize_detached()
+    let commit_buffer = commit
+      .tls_serialize_detached()
       .map_err(|err| Error::from_reason(format!("Error serializing commit: {err}")))?;
 
     Ok(ProposalsResult {
       commit: Some(Buffer::from(commit_buffer)),
-      welcome: welcome_buffer
+      welcome: welcome_buffer,
     })
   }
 
@@ -481,51 +608,67 @@ impl DaveSession {
   #[napi]
   pub fn process_welcome(&mut self, welcome: Buffer) -> napi::Result<()> {
     if self.group.is_some() && self.status == SessionStatus::ACTIVE {
-      return Err(Error::from_reason("Cannot process a welcome after being in an established group".to_string()))
+      return Err(Error::from_reason(
+        "Cannot process a welcome after being in an established group".to_string(),
+      ));
     }
 
     if self.external_sender.is_none() {
-      return Err(Error::from_reason("Cannot process a welcome without an external sender".to_string()))
+      return Err(Error::from_reason(
+        "Cannot process a welcome without an external sender".to_string(),
+      ));
     }
-  
+
     debug!("Processing welcome");
 
     let mls_group_config = MlsGroupJoinConfig::builder()
-        .use_ratchet_tree_extension(true)
-        .wire_format_policy(PURE_PLAINTEXT_WIRE_FORMAT_POLICY)
-        .build();
+      .use_ratchet_tree_extension(true)
+      .wire_format_policy(PURE_PLAINTEXT_WIRE_FORMAT_POLICY)
+      .build();
 
     let welcome = Welcome::tls_deserialize_exact_bytes(&welcome)
       .map_err(|err| Error::from_reason(format!("Error deserializing welcome: {err}")))?;
 
-    let staged_join = StagedWelcome::new_from_welcome(&self.provider, &mls_group_config, welcome, None)
-      .map_err(|err| Error::from_reason(format!("Error constructing staged join: {err}")))?;
+    let staged_join =
+      StagedWelcome::new_from_welcome(&self.provider, &mls_group_config, welcome, None)
+        .map_err(|err| Error::from_reason(format!("Error constructing staged join: {err}")))?;
 
     let external_senders = staged_join.group_context().extensions().external_senders();
     if external_senders.is_none() {
-      return Err(Error::from_reason("Welcome is missing an external senders extension".to_string()))
+      return Err(Error::from_reason(
+        "Welcome is missing an external senders extension".to_string(),
+      ));
     }
 
     let external_senders = external_senders.unwrap();
     if external_senders.len() != 1 {
-      return Err(Error::from_reason("Welcome lists an unexpected amount of external senders".to_string()))
+      return Err(Error::from_reason(
+        "Welcome lists an unexpected amount of external senders".to_string(),
+      ));
     }
 
-    if external_senders.get(0).unwrap() != self.external_sender.as_ref().unwrap() {
-      return Err(Error::from_reason("Welcome lists an unexpected external sender".to_string()))
+    if external_senders.first().unwrap() != self.external_sender.as_ref().unwrap() {
+      return Err(Error::from_reason(
+        "Welcome lists an unexpected external sender".to_string(),
+      ));
     }
 
-    let group = staged_join
-      .into_group(&self.provider)
-      .map_err(|err| Error::from_reason(format!("Error joining group from staged welcome: {err}")))?;
+    let group = staged_join.into_group(&self.provider).map_err(|err| {
+      Error::from_reason(format!("Error joining group from staged welcome: {err}"))
+    })?;
 
     if self.group.is_some() {
       let mut pending_group = self.group.take().unwrap();
-      pending_group.delete(self.provider.storage())
+      pending_group
+        .delete(self.provider.storage())
         .map_err(|err| Error::from_reason(format!("Error clearing pending group: {err}")))?;
     }
 
-    debug!("Welcomed to group successfully, our leaf index is {:?}, our epoch is {:?}", group.own_leaf_index().u32(), group.epoch().as_u64());
+    debug!(
+      "Welcomed to group successfully, our leaf index is {:?}, our epoch is {:?}",
+      group.own_leaf_index().u32(),
+      group.epoch().as_u64()
+    );
     self.group = Some(group);
     self.status = SessionStatus::ACTIVE;
     self.update_ratchets()?;
@@ -539,19 +682,22 @@ impl DaveSession {
   #[napi]
   pub fn process_commit(&mut self, commit: Buffer) -> napi::Result<()> {
     if self.group.is_none() {
-      return Err(Error::from_reason("Cannot process commit without a group".to_string()));
+      return Err(Error::from_reason(
+        "Cannot process commit without a group".to_string(),
+      ));
     }
 
     if self.group.is_some() && self.status == SessionStatus::PENDING {
-      return Err(Error::from_reason("Cannot process commit for a pending group".to_string()))
+      return Err(Error::from_reason(
+        "Cannot process commit for a pending group".to_string(),
+      ));
     }
-  
+
     debug!("Processing commit");
 
     let group = self.group.as_mut().unwrap();
 
-    let mls_message =
-      MlsMessageIn::tls_deserialize_exact_bytes(&commit)
+    let mls_message = MlsMessageIn::tls_deserialize_exact_bytes(&commit)
       .map_err(|err| Error::from_reason(format!("Error deserializing MLS message: {err}")))?;
 
     let protocol_message = mls_message
@@ -559,13 +705,17 @@ impl DaveSession {
       .map_err(|_| Error::from_reason("MLSMessage did not have a PublicMessage".to_string()))?;
 
     if protocol_message.group_id().as_slice() != self.group_id.as_slice() {
-      return Err(Error::from_reason("MLSMessage was for a different group".to_string()))
+      return Err(Error::from_reason(
+        "MLSMessage was for a different group".to_string(),
+      ));
     }
 
-    let processed_message_result = group
-      .process_message(&self.provider, protocol_message);
+    let processed_message_result = group.process_message(&self.provider, protocol_message);
 
-    if processed_message_result.is_err() && ProcessMessageError::InvalidCommit(StageCommitError::OwnCommit) == *processed_message_result.as_ref().unwrap_err() {
+    if processed_message_result.is_err()
+      && ProcessMessageError::InvalidCommit(StageCommitError::OwnCommit)
+        == *processed_message_result.as_ref().unwrap_err()
+    {
       // This is our own commit, lets merge pending instead
       debug!("Found own commit, merging pending commit instead.");
       group
@@ -582,11 +732,19 @@ impl DaveSession {
             .merge_staged_commit(&self.provider, *staged_commit)
             .map_err(|err| Error::from_reason(format!("Could not stage commit: {err}")))?;
         }
-        _ => return Err(Error::from_reason("ProcessedMessage is not a StagedCommitMessage".to_string())),
+        _ => {
+          return Err(Error::from_reason(
+            "ProcessedMessage is not a StagedCommitMessage".to_string(),
+          ))
+        }
       }
     }
 
-    debug!("Commit processed successfully, our leaf index is {:?}, our epoch is {:?}", group.own_leaf_index().u32(), group.epoch().as_u64());
+    debug!(
+      "Commit processed successfully, our leaf index is {:?}, our epoch is {:?}",
+      group.own_leaf_index().u32(),
+      group.epoch().as_u64()
+    );
     self.status = SessionStatus::ACTIVE;
     self.update_ratchets()?;
 
@@ -605,13 +763,20 @@ impl DaveSession {
         Err(err) => (None, Some(err)),
       }
     };
-    AsyncTask::new(AsyncSessionVerificationCode { fingerprints: ok, error: err })
+    AsyncTask::new(AsyncSessionVerificationCode {
+      fingerprints: ok,
+      error: err,
+    })
   }
 
   /// Create a pairwise fingerprint of you and another member.
   /// @see https://daveprotocol.com/#verification-fingerprint
   #[napi(ts_return_type = "Promise<Buffer>")]
-  pub fn get_pairwise_fingerprint(&self, version: u16, user_id: String) -> AsyncTask<AsyncPairwiseFingerprintSession> {
+  pub fn get_pairwise_fingerprint(
+    &self,
+    version: u16,
+    user_id: String,
+  ) -> AsyncTask<AsyncPairwiseFingerprintSession> {
     let result = self.get_pairwise_fingerprint_internal(version, user_id);
     let (ok, err) = {
       match result {
@@ -619,35 +784,51 @@ impl DaveSession {
         Err(err) => (None, Some(err)),
       }
     };
-    AsyncTask::new(AsyncPairwiseFingerprintSession { fingerprints: ok, error: err })
+    AsyncTask::new(AsyncPairwiseFingerprintSession {
+      fingerprints: ok,
+      error: err,
+    })
   }
 
-  fn get_pairwise_fingerprint_internal(&self, version: u16, user_id: String) -> napi::Result<Vec<Vec<u8>>> {
+  fn get_pairwise_fingerprint_internal(
+    &self,
+    version: u16,
+    user_id: String,
+  ) -> napi::Result<Vec<Vec<u8>>> {
     if self.group.is_none() || self.status == SessionStatus::PENDING {
-      return Err(Error::from_reason("Cannot get fingerprint without an established group".to_string()))
+      return Err(Error::from_reason(
+        "Cannot get fingerprint without an established group".to_string(),
+      ));
     }
 
     let our_uid = self.user_id_as_u64()?;
 
-    let their_uid = user_id.parse::<u64>()
+    let their_uid = user_id
+      .parse::<u64>()
       .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?;
 
     let member = self.group.as_ref().unwrap().members().find(|member| {
       let uid = u64::from_be_bytes(
-        member.credential.serialized_content().try_into().or::<TryFromSliceError>(Ok([0, 0, 0, 0, 0, 0, 0, 0])).unwrap()
+        member
+          .credential
+          .serialized_content()
+          .try_into()
+          .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0])
       );
       uid == their_uid
     });
 
     if member.is_none() {
-      return Err(Error::from_reason("Cannot find member in group".to_string()))
+      return Err(Error::from_reason(
+        "Cannot find member in group".to_string(),
+      ));
     }
 
     let member = member.unwrap();
 
     let fingerprints = vec![
       generate_key_fingerprint(version, our_uid, self.signer.public().to_vec()),
-      generate_key_fingerprint(version, their_uid, member.signature_key)
+      generate_key_fingerprint(version, their_uid, member.signature_key),
     ];
 
     Ok(fingerprints)
@@ -655,10 +836,15 @@ impl DaveSession {
 
   pub fn update_ratchets(&mut self) -> napi::Result<()> {
     if self.group.is_none() {
-      return Err(Error::from_reason("Cannot update ratchets without a group".to_string()));
+      return Err(Error::from_reason(
+        "Cannot update ratchets without a group".to_string(),
+      ));
     }
     let group = self.group.as_ref().unwrap();
-    debug!("Updating MLS ratchets for {:?} users", group.members().count());
+    debug!(
+      "Updating MLS ratchets for {:?} users",
+      group.members().count()
+    );
 
     // Update decryptors
     for member in group.members() {
@@ -669,22 +855,20 @@ impl DaveSession {
       }
       let uid = u64::from_be_bytes(user_id_bytes.unwrap());
 
-      if !self.decryptors.contains_key(&uid) {
-        debug!("Creating decryptor for user {uid:?}");
-        self.decryptors.insert(uid, Decryptor::new());
-      }
-
       let ratchet = self.get_key_ratchet(uid)?;
-      let decryptor = self.decryptors.get_mut(&uid);
-      if let Some(decryptor) = decryptor {
-        decryptor.transition_to_key_ratchet(ratchet);
-      }
+      let decryptor = self.decryptors.entry(uid).or_insert_with(|| {
+        debug!("Creating decryptor for user {uid:?}");
+        Decryptor::new()
+      });
+      decryptor.transition_to_key_ratchet(ratchet);
     }
 
     // Update encryptor
     let user_id = self.user_id_as_u64()?;
-    self.encryptor.set_key_ratchet(self.get_key_ratchet(user_id)?);
-    
+    self
+      .encryptor
+      .set_key_ratchet(self.get_key_ratchet(user_id)?);
+
     // Update privacy code
     let old_code = self.privacy_code.clone();
     let epoch_authenticator = self.group.as_ref().unwrap().epoch_authenticator();
@@ -701,11 +885,21 @@ impl DaveSession {
   /// @see https://daveprotocol.com/#sender-key-derivation
   fn get_key_ratchet(&self, user_id: u64) -> napi::Result<HashRatchet> {
     if self.group.is_none() || self.status == SessionStatus::PENDING {
-      return Err(Error::from_reason("Cannot get key ratchet without an established group".to_string()))
+      return Err(Error::from_reason(
+        "Cannot get key ratchet without an established group".to_string(),
+      ));
     }
 
-    let base_secret = self.group.as_ref().unwrap()
-      .export_secret(&self.provider, USER_MEDIA_KEY_BASE_LABEL, &user_id.to_le_bytes(), AES_GCM_128_KEY_BYTES)
+    let base_secret = self
+      .group
+      .as_ref()
+      .unwrap()
+      .export_secret(
+        &self.provider,
+        USER_MEDIA_KEY_BASE_LABEL,
+        &user_id.to_le_bytes(),
+        AES_GCM_128_KEY_BYTES,
+      )
       .map_err(|err| Error::from_reason(format!("Failed to export secret: {err}")))?;
 
     trace!("Got base secret for user {:?}: {:?}", user_id, base_secret);
@@ -717,25 +911,35 @@ impl DaveSession {
   /// @param codec The codec of the packet
   /// @param packet The packet to encrypt
   #[napi]
-  pub fn encrypt(&mut self, media_type: MediaType, codec: Codec, packet: Buffer) -> napi::Result<Buffer> {
+  pub fn encrypt(
+    &mut self,
+    media_type: MediaType,
+    codec: Codec,
+    packet: Buffer,
+  ) -> napi::Result<Buffer> {
     if !self.ready {
-      return Err(Error::from_reason("Session is not ready to process frames".to_string()))
+      return Err(Error::from_reason(
+        "Session is not ready to process frames".to_string(),
+      ));
     }
 
     // Return the packet back to the client (passthrough) if the packet is a silence packet
     // This may change in the future, see: https://daveprotocol.com/#silence-packets
-    if packet.len() == OPUS_SILENCE_PACKET.len() && packet.to_vec() == OPUS_SILENCE_PACKET.to_vec() {
-      return Ok(packet)
+    if packet.len() == OPUS_SILENCE_PACKET.len() && packet.to_vec() == OPUS_SILENCE_PACKET.to_vec()
+    {
+      return Ok(packet);
     }
 
     let mut out_size: usize = 0;
-    let mut encrypted_buffer: Vec<u8> = Vec::new();
-    encrypted_buffer.resize(
-      Encryptor::get_max_ciphertext_byte_size(&media_type, packet.len()),
-      0
-    );
+    let mut encrypted_buffer = vec![0u8; Encryptor::get_max_ciphertext_byte_size(&media_type, packet.len())];
 
-    let success = self.encryptor.encrypt(&media_type, codec, &packet, &mut encrypted_buffer, &mut out_size);
+    let success = self.encryptor.encrypt(
+      &media_type,
+      codec,
+      &packet,
+      &mut encrypted_buffer,
+      &mut out_size,
+    );
     encrypted_buffer.resize(out_size, 0);
     if !success {
       return Err(Error::from_reason("DAVE encryption failure".to_string()));
@@ -755,11 +959,18 @@ impl DaveSession {
   /// Get encryption stats.
   /// @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
   #[napi]
-  pub fn get_encryption_stats(&self, media_type: Option<MediaType>) -> napi::Result<EncryptionStats> {
-    self.encryptor.stats
+  pub fn get_encryption_stats(
+    &self,
+    media_type: Option<MediaType>,
+  ) -> napi::Result<EncryptionStats> {
+    self
+      .encryptor
+      .stats
       .get(&media_type.unwrap_or(MediaType::AUDIO))
-      .ok_or(Error::from_reason("Stats not found for that media type".to_string()))
-      .map(|s| s.clone())
+      .ok_or(Error::from_reason(
+        "Stats not found for that media type".to_string(),
+      ))
+      .cloned()
   }
 
   /// Decrypt an E2EE packet.
@@ -767,22 +978,28 @@ impl DaveSession {
   /// @param mediaType The type of media to decrypt
   /// @param packet The packet to decrypt
   #[napi]
-  pub fn decrypt(&mut self, user_id: String, media_type: MediaType, packet: Buffer) -> napi::Result<Buffer> {
-    let uid = user_id.parse::<u64>()
+  pub fn decrypt(
+    &mut self,
+    user_id: String,
+    media_type: MediaType,
+    packet: Buffer,
+  ) -> napi::Result<Buffer> {
+    let uid = user_id
+      .parse::<u64>()
       .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?;
 
     let decryptor = self.decryptors.get_mut(&uid);
     if decryptor.is_none() {
-      return Err(Error::from_reason("No decryptor found for that user".to_string()));
+      return Err(Error::from_reason(
+        "No decryptor found for that user".to_string(),
+      ));
     }
     let decryptor = decryptor.unwrap();
 
-    let mut frame = Vec::new();
-    frame.resize(Decryptor::get_max_plaintext_byte_size(&media_type, packet.len()), 0);
-    
+    let mut frame = vec![0u8; Decryptor::get_max_plaintext_byte_size(&media_type, packet.len())];
     let frame_length = decryptor.decrypt(&media_type, &packet, &mut frame);
     frame.resize(frame_length, 0);
-    if frame_length <= 0 {
+    if frame_length == 0 {
       return Err(Error::from_reason("DAVE decryption failure".to_string()));
     }
 
@@ -793,19 +1010,30 @@ impl DaveSession {
   /// @param userId The user ID
   /// @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
   #[napi]
-  pub fn get_decryption_stats(&self, user_id: String, media_type: Option<MediaType>) -> napi::Result<DecryptionStats> {
-    let uid = user_id.parse::<u64>()
+  pub fn get_decryption_stats(
+    &self,
+    user_id: String,
+    media_type: Option<MediaType>,
+  ) -> napi::Result<DecryptionStats> {
+    let uid = user_id
+      .parse::<u64>()
       .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))?;
-    
+
     let decryptor = self.decryptors.get(&uid);
     if decryptor.is_none() {
-      return Err(Error::from_reason("No decryptor found for that user".to_string()));
+      return Err(Error::from_reason(
+        "No decryptor found for that user".to_string(),
+      ));
     }
 
-    decryptor.unwrap().stats
+    decryptor
+      .unwrap()
+      .stats
       .get(&media_type.unwrap_or(MediaType::AUDIO))
-      .ok_or(Error::from_reason("Stats not found for that media type".to_string()))
-      .map(|s| s.clone())
+      .ok_or(Error::from_reason(
+        "Stats not found for that media type".to_string(),
+      ))
+      .cloned()
   }
 
   /// Get the IDs of the users in the current group.
@@ -816,12 +1044,22 @@ impl DaveSession {
       return Ok(vec![]);
     }
 
-    let user_ids = self.group.as_ref().unwrap().members().map(|member| {
-      let uid = u64::from_be_bytes(
-        member.credential.serialized_content().try_into().or::<TryFromSliceError>(Ok([0, 0, 0, 0, 0, 0, 0, 0])).unwrap()
-      );
-      uid.to_string()
-    }).collect();
+    let user_ids = self
+      .group
+      .as_ref()
+      .unwrap()
+      .members()
+      .map(|member| {
+        let uid = u64::from_be_bytes(
+          member
+            .credential
+            .serialized_content()
+            .try_into()
+            .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0])
+        );
+        uid.to_string()
+      })
+      .collect();
 
     Ok(user_ids)
   }
@@ -831,7 +1069,11 @@ impl DaveSession {
   pub fn to_string(&self) -> napi::Result<String> {
     Ok(format!(
       "DAVESession {{ protocolVersion: {}, userId: {}, channelId: {}, ready: {}, status: {:?} }}",
-      self.protocol_version()?, self.user_id()?, self.channel_id()?, self.ready, self.status
+      self.protocol_version()?,
+      self.user_id()?,
+      self.channel_id()?,
+      self.ready,
+      self.status
     ))
   }
 }

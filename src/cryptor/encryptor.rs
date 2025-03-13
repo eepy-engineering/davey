@@ -6,10 +6,12 @@ use super::{
   aead_cipher::AeadCipher,
   codec_utils::validate_encrypted_frame,
   cryptor_manager::compute_wrapped_generation,
-  frame_processors::{OutboundFrameProcessor, serialize_unencrypted_ranges, unencrypted_ranges_size},
+  frame_processors::{
+    serialize_unencrypted_ranges, unencrypted_ranges_size, OutboundFrameProcessor,
+  },
   hash_ratchet::HashRatchet,
   leb128::*,
-  *
+  *,
 };
 
 #[napi(object)]
@@ -39,8 +41,26 @@ pub struct Encryptor {
 impl Encryptor {
   pub fn new() -> Self {
     let mut stats = HashMap::new();
-    stats.insert(MediaType::AUDIO, EncryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0, max_attempts: 0 });
-    stats.insert(MediaType::VIDEO, EncryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0, max_attempts: 0 });
+    stats.insert(
+      MediaType::AUDIO,
+      EncryptionStats {
+        successes: 0,
+        failures: 0,
+        duration: 0,
+        attempts: 0,
+        max_attempts: 0,
+      },
+    );
+    stats.insert(
+      MediaType::VIDEO,
+      EncryptionStats {
+        successes: 0,
+        failures: 0,
+        duration: 0,
+        attempts: 0,
+        max_attempts: 0,
+      },
+    );
 
     Self {
       ratchet: None,
@@ -48,7 +68,7 @@ impl Encryptor {
       current_key_generation: 0,
       truncated_nonce: 0,
       frame_processors: Vec::new(),
-      stats
+      stats,
     }
   }
 
@@ -60,7 +80,14 @@ impl Encryptor {
   }
 
   // TODO use results to propogate errors up and return properly
-  pub fn encrypt(&mut self, media_type: &MediaType, codec: Codec, frame: &[u8], encrypted_frame: &mut [u8], bytes_written: &mut usize) -> bool {
+  pub fn encrypt(
+    &mut self,
+    media_type: &MediaType,
+    codec: Codec,
+    frame: &[u8],
+    encrypted_frame: &mut [u8],
+    bytes_written: &mut usize,
+  ) -> bool {
     if *media_type != MediaType::AUDIO && *media_type != MediaType::VIDEO {
       warn!("encryption failed, invalid media type {:?}", media_type);
       return false;
@@ -81,12 +108,13 @@ impl Encryptor {
     frame_processor.process_frame(frame, codec);
 
     let unencrypted_ranges = &frame_processor.unencrypted_ranges;
-    let ranges_size = unencrypted_ranges_size(&unencrypted_ranges);
+    let ranges_size = unencrypted_ranges_size(unencrypted_ranges);
 
     let additional_data = &frame_processor.unencrypted_bytes;
     let plaintext_buffer = &frame_processor.encrypted_bytes;
 
-    let frame_size = frame_processor.encrypted_bytes.len() + frame_processor.unencrypted_bytes.len();
+    let frame_size =
+      frame_processor.encrypted_bytes.len() + frame_processor.unencrypted_bytes.len();
 
     let mut nonce_buffer = [0u8; AES_GCM_128_NONCE_BYTES];
 
@@ -113,7 +141,8 @@ impl Encryptor {
 
       let curr_cryptor = self.cryptor.as_mut().unwrap();
 
-      nonce_buffer[AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET..AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET + AES_GCM_128_TRUNCATED_SYNC_NONCE_BYTES]
+      nonce_buffer[AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET
+        ..AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET + AES_GCM_128_TRUNCATED_SYNC_NONCE_BYTES]
         .copy_from_slice(&truncated_nonce.to_le_bytes());
 
       // ciphertext_bytes should be resized properly already
@@ -122,9 +151,15 @@ impl Encryptor {
         success = false;
         break;
       }
-      frame_processor.ciphertext_bytes.copy_from_slice(&plaintext_buffer);
+      frame_processor
+        .ciphertext_bytes
+        .copy_from_slice(plaintext_buffer);
 
-      let encrypt_result = curr_cryptor.encrypt(frame_processor.ciphertext_bytes.as_mut_slice(), &nonce_buffer, additional_data);
+      let encrypt_result = curr_cryptor.encrypt(
+        frame_processor.ciphertext_bytes.as_mut_slice(),
+        &nonce_buffer,
+        additional_data,
+      );
 
       let stats = self.stats.get_mut(media_type).unwrap();
       stats.attempts += 1;
@@ -135,8 +170,9 @@ impl Encryptor {
           // "The authentication tag resulting from the AES128-GCM encryption is truncated to 8 bytes."
           tag.resize(8, 0);
         }
-  
-        encrypted_frame[frame_size..frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES].copy_from_slice(&tag);
+
+        encrypted_frame[frame_size..frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES]
+          .copy_from_slice(&tag);
       } else {
         warn!("encryption failed, aead encryption failed");
         success = false;
@@ -147,7 +183,8 @@ impl Encryptor {
 
       let size = leb128_size(truncated_nonce as u64);
 
-      let (truncated_nonce_buffer, rest) = encrypted_frame[frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES..].split_at_mut(size);
+      let (truncated_nonce_buffer, rest) =
+        encrypted_frame[frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES..].split_at_mut(size);
       let (unencrypted_ranges_buffer, rest) = rest.split_at_mut(ranges_size as usize);
       let (supplemental_bytes_buffer, rest) = rest.split_at_mut(1);
       let (marker_bytes_buffer, _) = rest.split_at_mut(MARKER_BYTES.len());
@@ -158,7 +195,8 @@ impl Encryptor {
         break;
       }
 
-      if serialize_unencrypted_ranges(&unencrypted_ranges, unencrypted_ranges_buffer) != ranges_size {
+      if serialize_unencrypted_ranges(unencrypted_ranges, unencrypted_ranges_buffer) != ranges_size
+      {
         warn!("encryption failed, serialize_unencrypted_ranges failed");
         success = false;
         break;
@@ -176,7 +214,12 @@ impl Encryptor {
 
       marker_bytes_buffer.copy_from_slice(&MARKER_BYTES);
 
-      let encrypted_frame_bytes = reconstructed_frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES + size + ranges_size as usize + 1 + MARKER_BYTES.len();
+      let encrypted_frame_bytes = reconstructed_frame_size
+        + AES_GCM_127_TRUNCATED_TAG_BYTES
+        + size
+        + ranges_size as usize
+        + 1
+        + MARKER_BYTES.len();
 
       if validate_encrypted_frame(&frame_processor, &encrypted_frame[..encrypted_frame_bytes]) {
         *bytes_written = encrypted_frame_bytes;
@@ -203,7 +246,7 @@ impl Encryptor {
   }
 
   pub fn get_max_ciphertext_byte_size(_media_type: &MediaType, frame_size: usize) -> usize {
-    return frame_size + SUPPLEMENTAL_BYTES + TRANSFORM_PADDING_BYTES;
+    frame_size + SUPPLEMENTAL_BYTES + TRANSFORM_PADDING_BYTES
   }
 
   fn get_next_cryptor_and_nonce(&mut self) -> (Option<&AeadCipher>, u32) {
@@ -212,17 +255,24 @@ impl Encryptor {
     }
 
     self.truncated_nonce += 1;
-    let generation = compute_wrapped_generation(self.current_key_generation, self.truncated_nonce >> RATCHET_GENERATION_SHIFT_BITS);
+    let generation = compute_wrapped_generation(
+      self.current_key_generation,
+      self.truncated_nonce >> RATCHET_GENERATION_SHIFT_BITS,
+    );
 
     if generation != self.current_key_generation || self.cryptor.is_none() {
       self.current_key_generation = generation;
 
-      let result = self.ratchet.as_mut().unwrap().get(self.current_key_generation);
+      let result = self
+        .ratchet
+        .as_mut()
+        .unwrap()
+        .get(self.current_key_generation);
       match result {
         Ok((key, _)) => {
           let cipher = AeadCipher::new(key.as_slice());
           self.cryptor = cipher.ok();
-        },
+        }
         Err(err) => {
           warn!("Failed to get cryptor: {:?}", err);
           self.cryptor = None;

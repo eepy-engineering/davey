@@ -1,8 +1,15 @@
-use std::{collections::{HashMap, VecDeque}, sync::Arc, time::{Duration, Instant}};
+use std::{
+  collections::{HashMap, VecDeque},
+  sync::Arc,
+  time::{Duration, Instant},
+};
 
 use log::{trace, warn};
 
-use super::{cryptor_manager::CipherManager, frame_processors::InboundFrameProcessor, hash_ratchet::HashRatchet, *};
+use super::{
+  cryptor_manager::CipherManager, frame_processors::InboundFrameProcessor,
+  hash_ratchet::HashRatchet, *,
+};
 
 #[napi(object)]
 #[derive(Clone)]
@@ -27,33 +34,56 @@ pub struct Decryptor {
 impl Decryptor {
   pub fn new() -> Self {
     let mut stats = HashMap::new();
-    stats.insert(MediaType::AUDIO, DecryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0 });
-    stats.insert(MediaType::VIDEO, DecryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0 });
+    stats.insert(
+      MediaType::AUDIO,
+      DecryptionStats {
+        successes: 0,
+        failures: 0,
+        duration: 0,
+        attempts: 0,
+      },
+    );
+    stats.insert(
+      MediaType::VIDEO,
+      DecryptionStats {
+        successes: 0,
+        failures: 0,
+        duration: 0,
+        attempts: 0,
+      },
+    );
 
     Self {
       clock: Arc::new(Instant::now()),
       cryptor_managers: VecDeque::new(),
       frame_processors: Vec::new(),
-      stats
+      stats,
     }
   }
 
-  pub fn decrypt(&mut self, media_type: &MediaType, encrypted_frame: &[u8], frame: &mut [u8]) -> usize {
+  pub fn decrypt(
+    &mut self,
+    media_type: &MediaType,
+    encrypted_frame: &[u8],
+    frame: &mut [u8],
+  ) -> usize {
     if *media_type != MediaType::AUDIO && *media_type != MediaType::VIDEO {
       warn!("decryption failed, invalid media type {:?}", media_type);
       return 0;
     }
 
     let start = Instant::now();
-  
+
     // Skip decrypting for silence frames
     // This may change in the future, see: https://daveprotocol.com/#silence-packets
-    if encrypted_frame.len() == OPUS_SILENCE_PACKET.len() && encrypted_frame.to_vec() == OPUS_SILENCE_PACKET.to_vec() {
+    if encrypted_frame.len() == OPUS_SILENCE_PACKET.len()
+      && encrypted_frame.to_vec() == OPUS_SILENCE_PACKET.to_vec()
+    {
       frame[..OPUS_SILENCE_PACKET.len()].clone_from_slice(&OPUS_SILENCE_PACKET);
       return OPUS_SILENCE_PACKET.len();
     }
 
-	  // Remove any expired cryptor manager
+    // Remove any expired cryptor manager
     self.cleanup_expired_cryptor_managers();
 
     // Process the incoming frame
@@ -65,7 +95,7 @@ impl Decryptor {
     // TODO maybe have passthrough mode? at the moment this should be controlled by the implementing client
 
     let stats = self.stats.get_mut(media_type).unwrap();
-	  // If the frame is not encrypted, and we can't pass it through, fail
+    // If the frame is not encrypted, and we can't pass it through, fail
     if !local_frame.encrypted {
       warn!("decryption failed, frame is not encrypted");
       stats.failures += 1;
@@ -106,18 +136,23 @@ impl Decryptor {
     bytes_written
   }
 
-  fn decrypt_impl(cipher_manager: &mut CipherManager, encrypted_frame: &mut InboundFrameProcessor) -> bool {
-	  // expand the truncated nonce to the full sized one needed for decryption
+  fn decrypt_impl(
+    cipher_manager: &mut CipherManager,
+    encrypted_frame: &mut InboundFrameProcessor,
+  ) -> bool {
+    // expand the truncated nonce to the full sized one needed for decryption
     let mut nonce_buffer = [0u8; AES_GCM_128_NONCE_BYTES];
-    nonce_buffer[AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET..AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET + AES_GCM_128_TRUNCATED_SYNC_NONCE_BYTES]
+    nonce_buffer[AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET
+      ..AES_GCM_128_TRUNCATED_SYNC_NONCE_OFFSET + AES_GCM_128_TRUNCATED_SYNC_NONCE_BYTES]
       .copy_from_slice(&encrypted_frame.truncated_nonce.to_le_bytes());
 
-    let generation = cipher_manager.compute_wrapped_generation(encrypted_frame.truncated_nonce >> RATCHET_GENERATION_SHIFT_BITS);
+    let generation = cipher_manager
+      .compute_wrapped_generation(encrypted_frame.truncated_nonce >> RATCHET_GENERATION_SHIFT_BITS);
     if !cipher_manager.can_process_nonce(generation, encrypted_frame.truncated_nonce) {
       trace!("decryption failed, cannot process nonce");
       return false;
     }
-    
+
     let mut cipher = cipher_manager.get_cipher(generation);
 
     if cipher.is_none() {
@@ -130,14 +165,20 @@ impl Decryptor {
       warn!("encryption failed, ciphertext mismatch (internal error!)");
       return false;
     }
-    encrypted_frame.plaintext.copy_from_slice(&encrypted_frame.ciphertext);
+    encrypted_frame
+      .plaintext
+      .copy_from_slice(&encrypted_frame.ciphertext);
 
-    let success = cipher.as_mut().unwrap().decrypt(
-      &mut encrypted_frame.plaintext,
-      &nonce_buffer,
-      &encrypted_frame.authenticated,
-      &encrypted_frame.tag
-    ).is_ok();
+    let success = cipher
+      .as_mut()
+      .unwrap()
+      .decrypt(
+        &mut encrypted_frame.plaintext,
+        &nonce_buffer,
+        &encrypted_frame.authenticated,
+        &encrypted_frame.tag,
+      )
+      .is_ok();
 
     if success {
       cipher_manager.report_cipher_success(generation, encrypted_frame.truncated_nonce);
@@ -149,11 +190,16 @@ impl Decryptor {
   pub fn transition_to_key_ratchet(&mut self, ratchet: HashRatchet) {
     trace!("Transitioning to new key ratchet");
     self.update_cryptor_manager_expiry(RATCHET_EXPIRY);
-    self.cryptor_managers.push_back(CipherManager::new(self.clock.clone(), ratchet));
+    self
+      .cryptor_managers
+      .push_back(CipherManager::new(self.clock.clone(), ratchet));
   }
 
-  pub fn get_max_plaintext_byte_size(_media_type: &MediaType, encrypted_frame_size: usize) -> usize {
-    return encrypted_frame_size;
+  pub fn get_max_plaintext_byte_size(
+    _media_type: &MediaType,
+    encrypted_frame_size: usize,
+  ) -> usize {
+    encrypted_frame_size
   }
 
   fn update_cryptor_manager_expiry(&mut self, expiry: Duration) {

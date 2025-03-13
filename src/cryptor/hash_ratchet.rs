@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use log::{debug, trace};
 use napi::Error;
+use std::collections::HashMap;
 
 use super::mlspp_crypto::derive_tree_secret;
 
@@ -8,7 +8,7 @@ use super::mlspp_crypto::derive_tree_secret;
 pub struct HashRatchet {
   next_secret: Vec<u8>,
   next_generation: u32,
-  cache: HashMap<u32, (Vec<u8>, Vec<u8>)>
+  cache: HashMap<u32, (Vec<u8>, Vec<u8>)>,
 }
 
 impl HashRatchet {
@@ -17,7 +17,7 @@ impl HashRatchet {
     Self {
       next_generation: 0,
       next_secret: secret,
-      cache: HashMap::new()
+      cache: HashMap::new(),
     }
   }
 
@@ -29,21 +29,21 @@ impl HashRatchet {
       "key",
       generation,
       // RATCHET_CIPHERSUITE.aead_key_length()
-      16
+      16,
     )?;
     let nonce = derive_tree_secret(
       &self.next_secret,
       "nonce",
       generation,
       // RATCHET_CIPHERSUITE.aead_nonce_length()
-      12
+      12,
     )?;
     self.next_secret = derive_tree_secret(
       &self.next_secret,
       "secret",
       generation,
       // RATCHET_CIPHERSUITE.hash_length()
-      32
+      32,
     )?;
     self.next_generation = self.next_generation.wrapping_add(1);
     self.cache.insert(generation, (key, nonce));
@@ -52,17 +52,26 @@ impl HashRatchet {
 
   pub fn get(&mut self, generation: u32) -> napi::Result<&(Vec<u8>, Vec<u8>)> {
     if self.cache.contains_key(&generation) {
-      return Ok(self.cache.get(&generation).unwrap())
+      return Ok(self.cache.get(&generation).unwrap());
     }
 
     if self.next_generation > generation {
-      return Err(Error::from_reason("Tried to request an expired key".to_string()))
+      return Err(Error::from_reason(
+        "Tried to request an expired key".to_string(),
+      ));
     }
 
-    debug!("Getting generation {:?} (from next gen {:?})", generation, self.next_generation);
+    debug!(
+      "Getting generation {:?} (from next gen {:?})",
+      generation, self.next_generation
+    );
     while self.next_generation <= generation {
-      self.next()
-        .map_err(|err| Error::from_reason(format!("Error getting next generation ({:?}): {err}", self.next_generation)))?;
+      self.next().map_err(|err| {
+        Error::from_reason(format!(
+          "Error getting next generation ({:?}): {err}",
+          self.next_generation
+        ))
+      })?;
     }
 
     Ok(self.cache.get(&generation).unwrap())
@@ -81,14 +90,22 @@ mod tests {
 
   #[test]
   fn expected_result() {
-    env_logger::Builder::new().filter_level(log::LevelFilter::Trace).init();
+    env_logger::Builder::new()
+      .filter_level(log::LevelFilter::Trace)
+      .init();
 
-    let mut ratchet = HashRatchet::new(
-      vec![206, 221, 97, 177, 184, 161, 202, 105, 4, 101, 84, 40, 44, 247, 11, 123]
-    );
+    let mut ratchet = HashRatchet::new(vec![
+      206, 221, 97, 177, 184, 161, 202, 105, 4, 101, 84, 40, 44, 247, 11, 123,
+    ]);
 
     let (key, nonce) = ratchet.get(0).expect("Expected success from ratchet");
-    assert_eq!(*key, vec![117, 48, 249, 169, 148, 94, 45, 46, 6, 208, 101, 31, 123, 42, 134, 75]);
-    assert_eq!(*nonce, vec![48, 30, 95, 75, 116, 9, 15, 152, 94, 114, 107, 178]);
+    assert_eq!(
+      *key,
+      vec![117, 48, 249, 169, 148, 94, 45, 46, 6, 208, 101, 31, 123, 42, 134, 75]
+    );
+    assert_eq!(
+      *nonce,
+      vec![48, 30, 95, 75, 116, 9, 15, 152, 94, 114, 107, 178]
+    );
   }
 }

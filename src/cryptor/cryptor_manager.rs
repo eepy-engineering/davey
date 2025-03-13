@@ -1,32 +1,38 @@
-use std::{cmp::max, collections::{HashMap, VecDeque}, sync::Arc, time::{Duration, Instant}};
+#![allow(clippy::map_entry)]
 use log::{debug, trace, warn};
+use std::{
+  cmp::max,
+  collections::{HashMap, VecDeque},
+  sync::Arc,
+  time::{Duration, Instant},
+};
 
 use crate::cryptor::{CIPHER_EXPIRY, MAX_MISSING_NONCES};
 
 use super::{aead_cipher::AeadCipher, hash_ratchet::HashRatchet, *};
 
 pub fn compute_wrapped_generation(oldest: u32, generation: u32) -> u32 {
-	// Assume generation is greater than or equal to oldest, this may be wrong in a few cases but
-	// will be caught by the max generation gap check.
-	let remainder = oldest % GENERATION_WRAP;
+  // Assume generation is greater than or equal to oldest, this may be wrong in a few cases but
+  // will be caught by the max generation gap check.
+  let remainder = oldest % GENERATION_WRAP;
   let mut extra: u32 = 0;
   if generation < remainder {
     extra = 1;
   }
-	let factor = oldest / GENERATION_WRAP + extra;
-	return factor * GENERATION_WRAP + generation;
+  let factor = oldest / GENERATION_WRAP + extra;
+  factor * GENERATION_WRAP + generation
 }
 
 fn compute_wrapped_big_nonce(generation: u32, nonce: u32) -> u64 {
-	// Remove the generation bits from the nonce
-	let masked_nonce = (nonce as u64) & ((1 << RATCHET_GENERATION_SHIFT_BITS) - 1);
-	// Add the wrapped generation bits back in
-	return (generation as u64) << RATCHET_GENERATION_SHIFT_BITS | masked_nonce;
+  // Remove the generation bits from the nonce
+  let masked_nonce = (nonce as u64) & ((1 << RATCHET_GENERATION_SHIFT_BITS) - 1);
+  // Add the wrapped generation bits back in
+  (generation as u64) << RATCHET_GENERATION_SHIFT_BITS | masked_nonce
 }
 
 struct ExpiringCipher {
   cipher: AeadCipher,
-  expiry: Option<Duration>
+  expiry: Option<Duration>,
 }
 
 pub struct CipherManager {
@@ -38,7 +44,7 @@ pub struct CipherManager {
   oldest_generation: u32,
   newest_generation: u32,
   newest_processed_nonce: Option<u64>,
-  missing_nonces: VecDeque<u64>
+  missing_nonces: VecDeque<u64>,
 }
 
 impl CipherManager {
@@ -53,29 +59,38 @@ impl CipherManager {
       oldest_generation: 0,
       newest_generation: 0,
       newest_processed_nonce: None,
-      missing_nonces: VecDeque::new()
+      missing_nonces: VecDeque::new(),
     }
   }
 
   pub fn can_process_nonce(&self, generation: u32, nonce: u32) -> bool {
     if self.newest_processed_nonce.is_none() {
-      return true
+      return true;
     }
 
     let wrapped_big_nonce = compute_wrapped_big_nonce(generation, nonce);
-    wrapped_big_nonce > self.newest_processed_nonce.unwrap() || self.missing_nonces.contains(&wrapped_big_nonce)
+    wrapped_big_nonce > self.newest_processed_nonce.unwrap()
+      || self.missing_nonces.contains(&wrapped_big_nonce)
   }
 
   pub fn get_cipher(&mut self, generation: u32) -> Option<&mut AeadCipher> {
     let _ = self.cleanup_expired_ciphers();
 
     if generation < self.oldest_generation {
-      trace!("Received frame with old generation: {:?}, oldest generation: {:?}", generation, self.oldest_generation);
+      trace!(
+        "Received frame with old generation: {:?}, oldest generation: {:?}",
+        generation,
+        self.oldest_generation
+      );
       return None;
     }
 
     if generation > self.newest_generation + MAX_GENERATION_GAP {
-      trace!("Received frame with future generation: {:?}, newest generation: {:?}", generation, self.newest_generation);
+      trace!(
+        "Received frame with future generation: {:?}, newest generation: {:?}",
+        generation,
+        self.newest_generation
+      );
       return None;
     }
 
@@ -84,7 +99,7 @@ impl CipherManager {
     let max_lifetime_generations = max_lifetime_frames >> RATCHET_GENERATION_SHIFT_BITS;
     if generation > max_lifetime_generations as u32 {
       debug!("Received frame with generation {:?} beyond ratchet max lifetime generations: {:?}, ratchet lifetime: {:?}", generation, max_lifetime_generations, ratchet_lifetime_sec);
-      return None
+      return None;
     }
 
     if !self.cryptor_generations.contains_key(&generation) {
@@ -92,12 +107,20 @@ impl CipherManager {
       if ec_result.is_err() {
         let err = ec_result.err().unwrap();
         warn!("Error while making expiring cipher: {err}");
-        return None
+        return None;
       }
-      self.cryptor_generations.insert(generation, ec_result.unwrap());
+      self
+        .cryptor_generations
+        .insert(generation, ec_result.unwrap());
     }
 
-    Some(&mut self.cryptor_generations.get_mut(&generation).unwrap().cipher)
+    Some(
+      &mut self
+        .cryptor_generations
+        .get_mut(&generation)
+        .unwrap()
+        .cipher,
+    )
   }
 
   pub fn report_cipher_success(&mut self, generation: u32, nonce: u32) {
@@ -115,33 +138,39 @@ impl CipherManager {
         }
       };
 
-      while !self.missing_nonces.is_empty() && self.missing_nonces.front().unwrap() < &oldest_missing_nonce {
+      while !self.missing_nonces.is_empty()
+        && self.missing_nonces.front().unwrap() < &oldest_missing_nonce
+      {
         self.missing_nonces.pop_front();
       }
 
-      
       // If we're missing a lot, we don't want to add everything since newestProcessedNonce_
-      let missing_range_start = max(oldest_missing_nonce, self.newest_processed_nonce.unwrap() + 1);
-      for i in missing_range_start..wrapped_big_nonce  {
+      let missing_range_start = max(
+        oldest_missing_nonce,
+        self.newest_processed_nonce.unwrap() + 1,
+      );
+      for i in missing_range_start..wrapped_big_nonce {
         self.missing_nonces.push_back(i);
       }
 
       // Update the newest processed nonce
       self.newest_processed_nonce = Some(wrapped_big_nonce);
-    } else {
-      if let Some(index) = self.missing_nonces.iter().position(|&x| x == wrapped_big_nonce) {
-        self.missing_nonces.remove(index);
-      }
+    } else if let Some(index) = self
+      .missing_nonces
+      .iter()
+      .position(|&x| x == wrapped_big_nonce)
+    {
+      self.missing_nonces.remove(index);
     }
 
     if generation <= self.newest_generation || !self.cryptor_generations.contains_key(&generation) {
-      return
+      return;
     }
 
     trace!("Reporting cryptor success, generation: {generation}");
     self.newest_generation = generation;
 
-	  // Update the expiry time for all old cryptors
+    // Update the expiry time for all old cryptors
     let expiry_time = self.clock.elapsed() + CIPHER_EXPIRY;
     for (cryptor_generation, cryptor) in self.cryptor_generations.iter_mut() {
       if cryptor_generation < &self.newest_generation {
@@ -174,7 +203,7 @@ impl CipherManager {
 
     Ok(ExpiringCipher {
       cipher: AeadCipher::new(key.as_slice())?,
-      expiry: expiry_time
+      expiry: expiry_time,
     })
   }
 
@@ -187,8 +216,15 @@ impl CipherManager {
       expired
     });
 
-    while self.oldest_generation < self.newest_generation && !self.cryptor_generations.contains_key(&self.oldest_generation) {
-      trace!("Deleting key for old generation: {:?}", self.oldest_generation);
+    while self.oldest_generation < self.newest_generation
+      && !self
+        .cryptor_generations
+        .contains_key(&self.oldest_generation)
+    {
+      trace!(
+        "Deleting key for old generation: {:?}",
+        self.oldest_generation
+      );
       self.key_ratchet.erase(self.oldest_generation);
       self.oldest_generation += 1;
     }
@@ -196,15 +232,15 @@ impl CipherManager {
     Ok(())
   }
 
-	pub fn update_expiry(&mut self, expiry: Duration) {
-		self.ratchet_expiry = Some(expiry);
-	}
+  pub fn update_expiry(&mut self, expiry: Duration) {
+    self.ratchet_expiry = Some(expiry);
+  }
 
-	pub fn is_expired(&self) -> bool {
+  pub fn is_expired(&self) -> bool {
     if self.ratchet_expiry.is_none() {
-      return false
+      return false;
     }
 
-		self.clock.elapsed() > self.ratchet_expiry.unwrap()
-	}
+    self.clock.elapsed() > self.ratchet_expiry.unwrap()
+  }
 }

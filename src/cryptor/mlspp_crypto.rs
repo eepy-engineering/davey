@@ -1,25 +1,28 @@
 //! A module that has converted MLS++'s functions needed for [Sender Key Derivation][1].
-//! 
+//!
 //! A problem I ran into is that when trying to use OpenMLS' [`openmls::tree::sender_ratchet::RatchetSecret`] for [Sender Key Derivation][1]
 //! is that when trying to derive tree secrets, the library gives a `CryptoError::HkdfOutputLengthInvalid` due to
 //! the secret length being 16 bytes, while the requested size is different.
-//! 
+//!
 //! In OpenMLS's implementation, these lengths are more harshly enforced, while in MLS++, they are resized to match.
 //! So this file is for running over necessary functions that depend on `derive_tree_secret`. Don't like how long that took to figure out.
-//! 
+//!
 //! [1]: https://daveprotocol.com/#sender-key-derivation
 
 use hmac::{Hmac, Mac};
 use log::{debug, trace};
 use napi::Error;
-use openmls::prelude::{tls_codec::{self, Serialize}, TlsSerialize, TlsSize, VLBytes};
+use openmls::prelude::{
+  tls_codec::{self, Serialize},
+  TlsSerialize, TlsSize, VLBytes,
+};
 use sha2::Sha256;
 
 #[derive(Debug, TlsSerialize, TlsSize)]
 pub struct KdfLabel {
-    length: u16,
-    label: VLBytes,
-    context: VLBytes,
+  length: u16,
+  label: VLBytes,
+  context: VLBytes,
 }
 
 // https://github.com/cisco/mlspp/blob/f7924fc87f77f60a0ea8488615c9fb46c7b386e6/lib/hpke/src/hkdf.cpp#L63
@@ -31,10 +34,10 @@ fn hkdf_expand(prk: &[u8], info: &[u8], size: usize) -> napi::Result<Vec<u8>> {
     i += 1;
     let mut block: Vec<u8> = vec![];
     block.append(&mut ti);
-    block.extend_from_slice(&info);
+    block.extend_from_slice(info);
     block.push(i);
 
-    let mut hmac = Hmac::<Sha256>::new_from_slice(&prk)
+    let mut hmac = Hmac::<Sha256>::new_from_slice(prk)
       .map_err(|_| Error::from_reason("Invalid length in hkdf_expand".to_string()))?;
     hmac.update(&block);
     ti = hmac.finalize().into_bytes().to_vec();
@@ -47,7 +50,12 @@ fn hkdf_expand(prk: &[u8], info: &[u8], size: usize) -> napi::Result<Vec<u8>> {
 }
 
 // https://github.com/cisco/mlspp/blob/f7924fc87f77f60a0ea8488615c9fb46c7b386e6/src/crypto.cpp#L177
-fn expand_with_label(secret: &[u8], label: &str, context: &[u8], length: usize) -> napi::Result<Vec<u8>> {
+fn expand_with_label(
+  secret: &[u8],
+  label: &str,
+  context: &[u8],
+  length: usize,
+) -> napi::Result<Vec<u8>> {
   let mls_label = format!("MLS 1.0 {}", label);
   trace!(
     "KDF expand with label \"{}\" with context {:x?}",
@@ -60,28 +68,27 @@ fn expand_with_label(secret: &[u8], label: &str, context: &[u8], length: usize) 
     context: context.into(),
   };
   trace!("  label: {:x?}", kdf_label);
-  let info = kdf_label.tls_serialize_detached()
+  let info = kdf_label
+    .tls_serialize_detached()
     .map_err(|_| Error::from_reason("Failed to deserialize KDF label".to_string()))?;
   trace!("  serialized info: {:x?}", info);
   trace!("  secret: {:x?}", secret);
-  Ok(hkdf_expand(&secret, &info, length)?)
+  hkdf_expand(secret, &info, length)
 }
 
 // https://github.com/cisco/mlspp/blob/f7924fc87f77f60a0ea8488615c9fb46c7b386e6/src/crypto.cpp#L195
-pub fn derive_tree_secret(secret: &[u8], label: &str, generation: u32, length: usize) -> napi::Result<Vec<u8>> {
+pub fn derive_tree_secret(
+  secret: &[u8],
+  label: &str,
+  generation: u32,
+  length: usize,
+) -> napi::Result<Vec<u8>> {
   debug!(
     "Derive tree secret with label \"{}\" in generation {} of length {}",
-    label,
-    generation,
-    length
+    label, generation, length
   );
   trace!("Input secret {:x?}", secret);
-  let new_secret = expand_with_label(
-    secret,
-    label,
-    &generation.to_be_bytes(),
-    length,
-  )?;
+  let new_secret = expand_with_label(secret, label, &generation.to_be_bytes(), length)?;
   trace!("Derived secret {:x?}", new_secret);
   Ok(new_secret)
 }
