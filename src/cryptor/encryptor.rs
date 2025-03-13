@@ -39,9 +39,8 @@ pub struct Encryptor {
 impl Encryptor {
   pub fn new() -> Self {
     let mut stats = HashMap::new();
-    for media_type in [MediaType::AUDIO, MediaType::VIDEO].iter() {
-      stats.insert(*media_type, EncryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0, max_attempts: 0 });
-    }
+    stats.insert(MediaType::AUDIO, EncryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0, max_attempts: 0 });
+    stats.insert(MediaType::VIDEO, EncryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0, max_attempts: 0 });
 
     Self {
       ratchet: None,
@@ -61,13 +60,13 @@ impl Encryptor {
   }
 
   // TODO use results to propogate errors up and return properly
-  pub fn encrypt(&mut self, media_type: MediaType, codec: Codec, frame: &[u8], encrypted_frame: &mut [u8], bytes_written: &mut usize) -> bool {
-    if media_type != MediaType::AUDIO && media_type != MediaType::VIDEO {
+  pub fn encrypt(&mut self, media_type: &MediaType, codec: Codec, frame: &[u8], encrypted_frame: &mut [u8], bytes_written: &mut usize) -> bool {
+    if *media_type != MediaType::AUDIO && *media_type != MediaType::VIDEO {
       warn!("encryption failed, invalid media type {:?}", media_type);
       return false;
     }
 
-    let stats = self.stats.get_mut(&media_type).unwrap();
+    let stats = self.stats.get_mut(media_type).unwrap();
 
     if self.ratchet.is_none() {
       warn!("encryption failed, no ratchet");
@@ -127,7 +126,7 @@ impl Encryptor {
 
       let encrypt_result = curr_cryptor.encrypt(frame_processor.ciphertext_bytes.as_mut_slice(), &nonce_buffer, additional_data);
 
-      let stats = self.stats.get_mut(&media_type).unwrap();
+      let stats = self.stats.get_mut(media_type).unwrap();
       stats.attempts += 1;
       stats.max_attempts = stats.max_attempts.max(attempt as u32);
 
@@ -189,7 +188,7 @@ impl Encryptor {
       }
     }
 
-    let stats = self.stats.get_mut(&media_type).unwrap();
+    let stats = self.stats.get_mut(media_type).unwrap();
     stats.duration += start.elapsed().as_micros() as u32;
     if success {
       stats.successes += 1;
@@ -203,7 +202,7 @@ impl Encryptor {
     success
   }
 
-  pub fn get_max_ciphertext_byte_size(_media_type: MediaType, frame_size: usize) -> usize {
+  pub fn get_max_ciphertext_byte_size(_media_type: &MediaType, frame_size: usize) -> usize {
     return frame_size + SUPPLEMENTAL_BYTES + TRANSFORM_PADDING_BYTES;
   }
 

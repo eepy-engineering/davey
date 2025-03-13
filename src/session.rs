@@ -52,7 +52,7 @@ pub enum ProposalsOperationType {
 }
 
 #[napi]
-#[derive(Debug,PartialEq)]
+#[derive(Debug,PartialEq,Clone,Copy)]
 #[allow(non_camel_case_types)]
 pub enum SessionStatus {
   INACTIVE = 0,
@@ -731,11 +731,11 @@ impl DaveSession {
     let mut out_size: usize = 0;
     let mut encrypted_buffer: Vec<u8> = Vec::new();
     encrypted_buffer.resize(
-      Encryptor::get_max_ciphertext_byte_size(media_type, packet.len()),
+      Encryptor::get_max_ciphertext_byte_size(&media_type, packet.len()),
       0
     );
 
-    let success = self.encryptor.encrypt(media_type, codec, &packet, &mut encrypted_buffer, &mut out_size);
+    let success = self.encryptor.encrypt(&media_type, codec, &packet, &mut encrypted_buffer, &mut out_size);
     encrypted_buffer.resize(out_size, 0);
     if !success {
       return Err(Error::from_reason("DAVE encryption failure".to_string()));
@@ -778,9 +778,9 @@ impl DaveSession {
     let decryptor = decryptor.unwrap();
 
     let mut frame = Vec::new();
-    frame.resize(Decryptor::get_max_plaintext_byte_size(media_type, packet.len()), 0);
+    frame.resize(Decryptor::get_max_plaintext_byte_size(&media_type, packet.len()), 0);
     
-    let frame_length = decryptor.decrypt(media_type, &packet, &mut frame);
+    let frame_length = decryptor.decrypt(&media_type, &packet, &mut frame);
     frame.resize(frame_length, 0);
     if frame_length <= 0 {
       return Err(Error::from_reason("DAVE decryption failure".to_string()));

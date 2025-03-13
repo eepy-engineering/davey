@@ -5,14 +5,28 @@ node_modules
 logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Runtime data
 pids
 *.pid
 *.seed
+*.pid.lock
+
+# Coverage
+lib-cov
+coverage
+*.lcov
+.nyc_output
 
 # Env
-.env
+.env*
 
 # Dist
 dist
@@ -25,15 +39,15 @@ lib
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea
-.DS_Store
 .turbo
-tsconfig.tsbuildinfo
+.zed
 coverage
 out
 package.tgz
 tsup.config.bundled*
 vitest.config.ts.timestamp*
 testing
+*.tgz
 
 # Deno
 deno.lock
@@ -54,8 +68,20 @@ bun.lockb
 .prettiercache
 .eslintcache
 .vercel
+*.tsbuildinfo
+.cache
+.parcel-cache
 
 # Rust
-/target
+debug/
+target/
 Cargo.lock
 *.node
+**/*.rs.bk
+*.pdb
+
+# Mac
+*.icloud
+.DS_Store
+.AppleDouble
+.LSOverride

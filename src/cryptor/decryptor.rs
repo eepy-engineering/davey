@@ -27,9 +27,8 @@ pub struct Decryptor {
 impl Decryptor {
   pub fn new() -> Self {
     let mut stats = HashMap::new();
-    for media_type in [MediaType::AUDIO, MediaType::VIDEO].iter() {
-      stats.insert(*media_type, DecryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0 });
-    }
+    stats.insert(MediaType::AUDIO, DecryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0 });
+    stats.insert(MediaType::VIDEO, DecryptionStats { successes: 0, failures: 0, duration: 0, attempts: 0 });
 
     Self {
       clock: Arc::new(Instant::now()),
@@ -39,8 +38,8 @@ impl Decryptor {
     }
   }
 
-  pub fn decrypt(&mut self, media_type: MediaType, encrypted_frame: &[u8], frame: &mut [u8]) -> usize {
-    if media_type != MediaType::AUDIO && media_type != MediaType::VIDEO {
+  pub fn decrypt(&mut self, media_type: &MediaType, encrypted_frame: &[u8], frame: &mut [u8]) -> usize {
+    if *media_type != MediaType::AUDIO && *media_type != MediaType::VIDEO {
       warn!("decryption failed, invalid media type {:?}", media_type);
       return 0;
     }
@@ -65,7 +64,7 @@ impl Decryptor {
 
     // TODO maybe have passthrough mode? at the moment this should be controlled by the implementing client
 
-    let stats = self.stats.get_mut(&media_type).unwrap();
+    let stats = self.stats.get_mut(media_type).unwrap();
 	  // If the frame is not encrypted, and we can't pass it through, fail
     if !local_frame.encrypted {
       warn!("decryption failed, frame is not encrypted");
@@ -98,7 +97,7 @@ impl Decryptor {
       );
     }
 
-    let stats = self.stats.get_mut(&media_type).unwrap();
+    let stats = self.stats.get_mut(media_type).unwrap();
     stats.duration += start.elapsed().as_micros() as u32;
 
     // FIXME this technically should return when local_frame drops, but thats gonna be a bit annoying here
@@ -153,7 +152,7 @@ impl Decryptor {
     self.cryptor_managers.push_back(CipherManager::new(self.clock.clone(), ratchet));
   }
 
-  pub fn get_max_plaintext_byte_size(_media_type: MediaType, encrypted_frame_size: usize) -> usize {
+  pub fn get_max_plaintext_byte_size(_media_type: &MediaType, encrypted_frame_size: usize) -> usize {
     return encrypted_frame_size;
   }
 
