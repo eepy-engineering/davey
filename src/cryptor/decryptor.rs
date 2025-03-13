@@ -46,7 +46,6 @@ impl Decryptor {
     }
 
     let start = Instant::now();
-    let mut local_frame = self.get_or_create_frame_processor();
   
     // Skip decrypting for silence frames
     // This may change in the future, see: https://daveprotocol.com/#silence-packets
@@ -61,6 +60,7 @@ impl Decryptor {
     // Process the incoming frame
     // This will check whether it looks like a valid encrypted frame
     // and if so it will parse it into its different components
+    let mut local_frame = self.get_or_create_frame_processor();
     local_frame.parse_frame(encrypted_frame);
 
     // TODO maybe have passthrough mode? at the moment this should be controlled by the implementing client
@@ -70,6 +70,7 @@ impl Decryptor {
     if !local_frame.encrypted {
       warn!("decryption failed, frame is not encrypted");
       stats.failures += 1;
+      self.return_frame_processor(local_frame);
       return 0;
     }
 

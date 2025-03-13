@@ -74,7 +74,7 @@ impl CipherManager {
       return None;
     }
 
-    if generation < self.newest_generation + MAX_GENERATION_GAP {
+    if generation > self.newest_generation + MAX_GENERATION_GAP {
       trace!("Received frame with future generation: {:?}, newest generation: {:?}", generation, self.newest_generation);
       return None;
     }

@@ -1,14 +1,17 @@
-use aes_gcm::{aead::AeadMutInPlace, Aes128Gcm, KeyInit};
+use aes_gcm::{aead::AeadMutInPlace, aes::Aes128, AesGcm, KeyInit};
 use napi::Error;
+use sha2::digest::consts::{U12, U8};
+
+type Aes128GcmModified = AesGcm<Aes128, U12, U8>;
 
 pub struct AeadCipher {
-  key: Aes128Gcm,
+  key: Aes128GcmModified,
 }
 
 impl AeadCipher {
   pub fn new(key: &[u8]) -> napi::Result<Self> {
     Ok(Self {
-      key: Aes128Gcm::new_from_slice(key)
+      key: Aes128GcmModified::new_from_slice(key)
         .map_err(|err| Error::from_reason(format!("AeadCipher initialization error: {err}")))?
     })
   }

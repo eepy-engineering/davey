@@ -35,27 +35,37 @@ pub fn serialize_unencrypted_ranges(unencrypted_ranges: &Ranges, buffer: &mut [u
   write_at as u8
 }
 
-pub fn deserialize_unencrypted_ranges(read_at: &mut &[u8], buffer_size: u8, unencrypted_ranges: &mut Ranges) -> u8 {
+pub fn deserialize_unencrypted_ranges(read_at: &[u8], unencrypted_ranges: &mut Ranges) -> Option<u8> {
   let mut bytes_read = 0;
-  while bytes_read < buffer_size as usize {
-    let offset = read_leb128(read_at);
-    bytes_read += leb128_size(offset) as usize;
-    if bytes_read > buffer_size as usize {
+  while bytes_read < read_at.len() {
+    let offset_read = read_leb128(&read_at[bytes_read..]);
+    if offset_read.is_none() {
       unencrypted_ranges.clear();
-      return 0;
+      return None;
+    }
+    let (offset, read_offset) = offset_read.unwrap();
+    bytes_read += read_offset;
+    if bytes_read > read_at.len() {
+      unencrypted_ranges.clear();
+      return None;
     }
 
-    let size = read_leb128(read_at);
-    bytes_read += leb128_size(size) as usize;
-    if bytes_read > buffer_size as usize {
+    let size_read = read_leb128(&read_at[bytes_read..]);
+    if size_read.is_none() {
       unencrypted_ranges.clear();
-      return 0;
+      return None;
+    }
+    let (size, read_offset) = size_read.unwrap();
+    bytes_read += read_offset;
+    if bytes_read > read_at.len() {
+      unencrypted_ranges.clear();
+      return None;
     }
 
     unencrypted_ranges.push(Range { offset: offset as usize, size: size as usize });
   }
 
-  bytes_read as u8
+  Some(bytes_read as u8)
 }
 
 pub fn validate_unencrypted_ranges(unencrypted_ranges: &Ranges, frame_size: usize) -> bool {
@@ -162,7 +172,7 @@ impl InboundFrameProcessor {
 
     const MIN_SUPPLEMENTAL_BYTES_SIZE: usize = AES_GCM_127_TRUNCATED_TAG_BYTES as usize + 1 + 2;
     if frame.len() < MIN_SUPPLEMENTAL_BYTES_SIZE {
-      println!("Encrypted frame is too small to contain min supplemental bytes");
+      warn!("Encrypted frame is too small to contain min supplemental bytes");
       return;
     }
 
@@ -173,8 +183,8 @@ impl InboundFrameProcessor {
     }
 
 	  // Read the supplemental bytes size
-    let bytes_size_buffer = &frame[frame.len() - MARKER_BYTES.len() - 2..frame.len() - MARKER_BYTES.len()];
-    let bytes_size = u16::from_le_bytes([bytes_size_buffer[0], bytes_size_buffer[1]]) as usize;
+    let bytes_size_buffer = &frame[frame.len() - MARKER_BYTES.len() - 1..frame.len() - MARKER_BYTES.len()];
+    let bytes_size = bytes_size_buffer[0] as usize;
 
     // Check the frame is large enough to contain the supplemental bytes
 	  if frame.len() < bytes_size {
@@ -188,28 +198,30 @@ impl InboundFrameProcessor {
       return;
     }
 
-    let supplemental_bytes_buffer = &frame[frame.len() - bytes_size..frame.len() - MARKER_BYTES.len()];
+    let supplemental_bytes_buffer = &frame[frame.len() - bytes_size..];
 
 	  // Read the tag
     self.tag = supplemental_bytes_buffer[..AES_GCM_127_TRUNCATED_TAG_BYTES].to_vec();
 
 	  // Read the nonce
     let nonce_buffer = &supplemental_bytes_buffer[AES_GCM_127_TRUNCATED_TAG_BYTES..];
-    let mut read_at = nonce_buffer;
-    let truncated_nonce = read_leb128(&mut read_at);
-    if read_at.is_empty() {
+    let read_at = &nonce_buffer[..nonce_buffer.len() - &MARKER_BYTES.len() - 1];
+    let nonce_read = read_leb128(&read_at);
+    if nonce_read.is_none() {
       warn!("Failed to read truncated nonce");
       return;
     }
+    let (truncated_nonce, nonce_size) = nonce_read.unwrap();
     self.truncated_nonce = truncated_nonce as u32;
 
     // Read the unencrypted ranges
-    let ranges_size = (bytes_size - (AES_GCM_127_TRUNCATED_TAG_BYTES + leb128_size(truncated_nonce))) as u8;
     let mut unencrypted_ranges = Vec::new();
-    let bytes_read = deserialize_unencrypted_ranges(&mut read_at, ranges_size, &mut unencrypted_ranges);
-    if bytes_read == 0 {
-      warn!("Failed to read unencrypted ranges");
-      return;
+    if read_at.len() > nonce_size {
+      let bytes_read = deserialize_unencrypted_ranges(&read_at[nonce_size..], &mut unencrypted_ranges);
+      if bytes_read.is_none() {
+        warn!("Failed to read unencrypted ranges");
+        return;
+      }
     }
     self.unencrypted_ranges = unencrypted_ranges;
 
