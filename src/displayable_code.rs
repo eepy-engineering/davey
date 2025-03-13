@@ -31,11 +31,7 @@ pub fn generate_displayable_code(
     ));
   }
 
-  generate_displayable_code_internal(
-    &data,
-    desired_length as usize,
-    group_size as usize,
-  )
+  generate_displayable_code_internal(&data, desired_length as usize, group_size as usize)
 }
 
 pub fn generate_displayable_code_internal(

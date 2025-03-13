@@ -496,7 +496,7 @@ impl DaveSession {
                     member
                       .serialized_content()
                       .try_into()
-                      .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0])
+                      .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0]),
                   )
                 } else {
                   0u64
@@ -813,7 +813,7 @@ impl DaveSession {
           .credential
           .serialized_content()
           .try_into()
-          .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0])
+          .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0]),
       );
       uid == their_uid
     });
@@ -931,7 +931,8 @@ impl DaveSession {
     }
 
     let mut out_size: usize = 0;
-    let mut encrypted_buffer = vec![0u8; Encryptor::get_max_ciphertext_byte_size(&media_type, packet.len())];
+    let mut encrypted_buffer =
+      vec![0u8; Encryptor::get_max_ciphertext_byte_size(&media_type, packet.len())];
 
     let success = self.encryptor.encrypt(
       &media_type,
@@ -1055,7 +1056,7 @@ impl DaveSession {
             .credential
             .serialized_content()
             .try_into()
-            .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0])
+            .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0]),
         );
         uid.to_string()
       })
