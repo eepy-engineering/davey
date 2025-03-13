@@ -1,6 +1,6 @@
 use super::{frame_processors::OutboundFrameProcessor, Codec};
 
-const NALU_SHORT_START_SEQUENCE_SIZE: u8 = 3;
+// const NALU_SHORT_START_SEQUENCE_SIZE: u8 = 3;
 
 pub fn process_frame_opus(processor: &mut OutboundFrameProcessor, frame: &[u8]) -> bool {
   processor.add_encrypted_bytes(frame);
@@ -9,7 +9,7 @@ pub fn process_frame_opus(processor: &mut OutboundFrameProcessor, frame: &[u8]) 
 
 // TODO finish codec_utils
 
-pub fn validate_encrypted_frame(processor: &OutboundFrameProcessor, frame: &[u8]) -> bool {
+pub fn validate_encrypted_frame(processor: &OutboundFrameProcessor, _frame: &[u8]) -> bool {
   let codec = &processor.frame_codec;
   if *codec != Codec::H264 && *codec != Codec::H265 {
     return true;

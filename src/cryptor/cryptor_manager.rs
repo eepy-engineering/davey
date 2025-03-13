@@ -27,7 +27,7 @@ fn compute_wrapped_big_nonce(generation: u32, nonce: u32) -> u64 {
   // Remove the generation bits from the nonce
   let masked_nonce = (nonce as u64) & ((1 << RATCHET_GENERATION_SHIFT_BITS) - 1);
   // Add the wrapped generation bits back in
-  (generation as u64) << RATCHET_GENERATION_SHIFT_BITS | masked_nonce
+  ((generation as u64) << RATCHET_GENERATION_SHIFT_BITS) | masked_nonce
 }
 
 struct ExpiringCipher {
