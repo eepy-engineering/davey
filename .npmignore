@@ -13,3 +13,4 @@ bun.lock
 __test__
 renovate.json
 /openmls
+/aes-gcm

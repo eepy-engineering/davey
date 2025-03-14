@@ -114,6 +114,7 @@ pub struct DaveSession {
 }
 
 // TODO allow for specifying a signing key
+// TODO add recognized user IDs in processProposals/processWelcome call
 
 #[napi]
 impl DaveSession {
@@ -426,7 +427,6 @@ impl DaveSession {
     Ok(())
   }
 
-  // TODO add recognized user IDs in processProposals call
   /// Process proposals from an opcode 27 payload.
   /// @param operationType The operation type of the proposals.
   /// @param proposals The vector of proposals or proposal refs of the payload. (depending on operation type)
@@ -572,8 +572,8 @@ impl DaveSession {
 
     if commit_adds_members {
       match welcome {
-        Some(mls_message_out) => match mls_message_out.into_welcome() {
-          Some(welcome) => {
+        Some(mls_message_out) => match mls_message_out.body() {
+          MlsMessageBodyOut::Welcome(welcome) => {
             welcome_buffer = Some(Buffer::from(welcome.tls_serialize_detached().map_err(
               |err| Error::from_reason(format!("Error serializing welcome: {err}")),
             )?))
@@ -834,7 +834,7 @@ impl DaveSession {
     Ok(fingerprints)
   }
 
-  pub fn update_ratchets(&mut self) -> napi::Result<()> {
+  fn update_ratchets(&mut self) -> napi::Result<()> {
     if self.group.is_none() {
       return Err(Error::from_reason(
         "Cannot update ratchets without a group".to_string(),

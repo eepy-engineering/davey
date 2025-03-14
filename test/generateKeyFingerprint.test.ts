@@ -7,7 +7,10 @@ test('returns valid fingerprints', (t) => {
   t.is(generateKeyFingerprint(0, shortData, '1234').join(''), '000000000000000000000000000000000000000004210');
 
   const longData = Buffer.alloc(65);
-  t.is(generateKeyFingerprint(0, longData, '12345678').join(''), '0000000000000000000000000000000000000000000000000000000000000000000000001889778');
+  t.is(
+    generateKeyFingerprint(0, longData, '12345678').join(''),
+    '0000000000000000000000000000000000000000000000000000000000000000000000001889778',
+  );
 });
 
 test('throws on invalid arguments', (t) => {
@@ -19,4 +22,3 @@ test('throws on invalid arguments', (t) => {
   // Zero-length key
   t.throws(() => generateKeyFingerprint(0, Buffer.alloc(0), 'abcd'));
 });
-

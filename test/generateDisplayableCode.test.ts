@@ -21,4 +21,3 @@ test('throws on invalid arguments', (t) => {
   const randomData = crypto.getRandomValues(new Uint8Array(1024));
   t.throws(() => generateDisplayableCode(Buffer.from(randomData), 1024, 11));
 });
-
