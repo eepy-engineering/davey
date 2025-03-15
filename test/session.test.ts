@@ -76,8 +76,8 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
   return session;
 };
 
+// new DAVESession()
 {
-  // new DAVESession()
   test('new DAVESession() creates session successfully', (t) => {
     const session = createSession();
 
@@ -93,8 +93,8 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
   });
 }
 
+// setExternalSender()
 {
-  // setExternalSender()
   test('setExternalSender() runs successfully on valid data', (t) => {
     const session = createSession();
 
@@ -112,8 +112,8 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
   });
 }
 
+// getSerializedKeyPackage()
 {
-  // getSerializedKeyPackage()
   test('getSerializedKeyPackage() returns a key package', (t) => {
     const session = createSession();
 
@@ -131,8 +131,8 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
   });
 }
 
+// processProposals()
 {
-  // processProposals()
   test('processProposals() returns commit & welcome on appending proposals', (t) => {
     const session = createSession(SessionStatus.PENDING);
 
@@ -141,6 +141,14 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
     t.true(Buffer.isBuffer(result.commit), 'Expected result.commit to be a Buffer');
     t.true(Buffer.isBuffer(result.welcome), 'Expected result.welcome to be a Buffer');
     t.is(session.status, SessionStatus.AWAITING_RESPONSE);
+  });
+
+  test('processProposals() does not throw on recognized users', (t) => {
+    t.notThrows(() =>
+      createSession(SessionStatus.PENDING).processProposals(ProposalsOperationType.APPEND, APPENDING_PROPOSALS, [
+        OTHER_USER_ID,
+      ]),
+    );
   });
 
   test('processProposals() throws on invalid proposal op type', (t) => {
@@ -161,10 +169,16 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
 
     t.throws(() => session.processProposals(ProposalsOperationType.APPEND, EMPTY_BUFFER));
   });
+
+  test('processProposals() throws on unrecognized users', (t) => {
+    t.throws(() =>
+      createSession(SessionStatus.PENDING).processProposals(ProposalsOperationType.APPEND, APPENDING_PROPOSALS, []),
+    );
+  });
 }
 
+// processCommit()
 {
-  // processCommit()
   test('processCommit() runs successfully (can process our own commit)', (t) => {
     const session = createSession(SessionStatus.PENDING);
 
@@ -187,8 +201,8 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
   });
 }
 
+// voicePrivacyCode
 {
-  // voicePrivacyCode
   test('session.voicePrivacyCode is empty on non-established groups', (t) => {
     t.is(createSession(SessionStatus.INACTIVE).voicePrivacyCode, '');
     t.is(createSession(SessionStatus.PENDING).voicePrivacyCode, '');
@@ -196,13 +210,12 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
   });
 
   test('session.voicePrivacyCode is not empty on established groups', (t) => {
-    // we should match codes, but since our keypair is random every time, we will forgo this for now
     t.not(createSession(SessionStatus.ACTIVE).voicePrivacyCode, '');
   });
 }
 
+// getUserIds()
 {
-  // getUserIds()
   test('getUserIds() returns empty array on non-established groups', (t) => {
     t.deepEqual(createSession(SessionStatus.INACTIVE).getUserIds(), []);
   });
@@ -217,8 +230,8 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
   });
 }
 
+// encrypt()/decrypt()
 {
-  // encrypt()/decrypt()
   test('encrypt() returns silence frame when given one', (t) => {
     const session = createSession(SessionStatus.ACTIVE);
     t.deepEqual(session.encryptOpus(SILENCE_FRAME), SILENCE_FRAME);
@@ -230,8 +243,8 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
   });
 }
 
+// getEncryptionStats()/getDecryptionStats()
 {
-  // getEncryptionStats()/getDecryptionStats()
   test('getEncryptionStats() returns stats', (t) => {
     const session = createSession(SessionStatus.ACTIVE);
     t.deepEqual(session.getEncryptionStats(), { successes: 0, failures: 0, duration: 0, attempts: 0, maxAttempts: 0 });

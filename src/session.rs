@@ -19,7 +19,7 @@ use crate::{
     Codec, MediaType, AES_GCM_128_KEY_BYTES, OPUS_SILENCE_PACKET,
   },
   generate_displayable_code_internal, AsyncPairwiseFingerprintSession,
-  AsyncSessionVerificationCode, DAVEProtocolVersion,
+  AsyncSessionVerificationCode, DAVEProtocolVersion, SigningKeyPair,
 };
 
 const USER_MEDIA_KEY_BASE_LABEL: &str = "Discord Secure Frames v0";
@@ -113,16 +113,19 @@ pub struct DaveSession {
   decryptors: HashMap<u64, Decryptor>,
 }
 
-// TODO allow for specifying a signing key
-// TODO add recognized user IDs in processProposals/processWelcome call
-
 #[napi]
 impl DaveSession {
   /// @param protocolVersion The protocol version to use.
   /// @param userId The user ID of the session.
   /// @param channelId The channel ID of the session.
+  /// @param keyPair The key pair to use for this session. Will generate a new one if not specified.
   #[napi(constructor)]
-  pub fn new(protocol_version: u16, user_id: String, channel_id: String) -> napi::Result<Self> {
+  pub fn new(
+    protocol_version: u16,
+    user_id: String,
+    channel_id: String,
+    key_pair: Option<SigningKeyPair>,
+  ) -> napi::Result<Self> {
     let ciphersuite = dave_protocol_version_to_ciphersuite(protocol_version)?;
     let credential = BasicCredential::new(
       user_id
@@ -137,8 +140,17 @@ impl DaveSession {
         .map_err(|_| Error::new(Status::InvalidArg, "Invalid channel id".to_string()))?
         .to_be_bytes(),
     );
-    let signer = SignatureKeyPair::new(ciphersuite.signature_algorithm())
-      .map_err(|err| Error::from_reason(format!("Error generating a signature key pair: {err}")))?;
+    let signer = if let Some(key_pair) = key_pair {
+      SignatureKeyPair::from_raw(
+        ciphersuite.signature_algorithm(),
+        key_pair.private.into(),
+        key_pair.public.into(),
+      )
+    } else {
+      SignatureKeyPair::new(ciphersuite.signature_algorithm()).map_err(|err| {
+        Error::from_reason(format!("Error generating a signature key pair: {err}"))
+      })?
+    };
     let credential_with_key = CredentialWithKey {
       credential: credential.into(),
       signature_key: signer.public().into(),
@@ -165,12 +177,14 @@ impl DaveSession {
   /// @param protocolVersion The protocol version to use.
   /// @param userId The user ID of the session.
   /// @param channelId The channel ID of the session.
+  /// @param keyPair The key pair to use for this session. Will generate a new one if not specified.
   #[napi]
   pub fn reinit(
     &mut self,
     protocol_version: u16,
     user_id: String,
     channel_id: String,
+    key_pair: Option<SigningKeyPair>,
   ) -> napi::Result<()> {
     self.reset()?;
 
@@ -188,8 +202,17 @@ impl DaveSession {
         .map_err(|_| Error::new(Status::InvalidArg, "Invalid channel id".to_string()))?
         .to_be_bytes(),
     );
-    let signer = SignatureKeyPair::new(ciphersuite.signature_algorithm())
-      .map_err(|err| Error::from_reason(format!("Error generating a signature key pair: {err}")))?;
+    let signer = if let Some(key_pair) = key_pair {
+      SignatureKeyPair::from_raw(
+        ciphersuite.signature_algorithm(),
+        key_pair.private.into(),
+        key_pair.public.into(),
+      )
+    } else {
+      SignatureKeyPair::new(ciphersuite.signature_algorithm()).map_err(|err| {
+        Error::from_reason(format!("Error generating a signature key pair: {err}"))
+      })?
+    };
     let credential_with_key = CredentialWithKey {
       credential: credential.into(),
       signature_key: signer.public().into(),
@@ -430,6 +453,7 @@ impl DaveSession {
   /// Process proposals from an opcode 27 payload.
   /// @param operationType The operation type of the proposals.
   /// @param proposals The vector of proposals or proposal refs of the payload. (depending on operation type)
+  /// @param recognizedUserIds The recognized set of user IDs gathered from the voice gateway. Recommended to set so that incoming users are checked against.
   /// @returns A commit (if there were queued proposals) and a welcome (if a member was added) that should be used to send an [opcode 28: dave_mls_commit_welcome](https://daveprotocol.com/#dave_mls_commit_welcome-28) ONLY if a commit was returned.
   /// @see https://daveprotocol.com/#dave_mls_proposals-27
   #[napi]
@@ -437,6 +461,7 @@ impl DaveSession {
     &mut self,
     operation_type: ProposalsOperationType,
     proposals: Buffer,
+    recognized_user_ids: Option<Vec<String>>,
   ) -> napi::Result<ProposalsResult> {
     if self.group.is_none() {
       return Err(Error::from_reason(
@@ -445,6 +470,18 @@ impl DaveSession {
     }
 
     let group = self.group.as_mut().unwrap();
+
+    let recognized_user_ids = recognized_user_ids
+      .map(|ids| {
+        ids
+          .into_iter()
+          .map(|id| {
+            id.parse::<u64>()
+              .map_err(|_| Error::new(Status::InvalidArg, "Invalid user id".to_string()))
+          })
+          .collect::<Result<Vec<u64>, Error>>()
+      })
+      .transpose()?;
 
     debug!("Processing proposals, optype {:?}", operation_type);
 
@@ -482,10 +519,21 @@ impl DaveSession {
                     Error::from_reason(format!("Failed to convert proposal user id: {err}"))
                   })?,
               );
+
               debug!(
                 "Storing add proposal for user {:?}",
                 incoming_user_id.to_string()
               );
+
+              if let Some(ref ids) = recognized_user_ids {
+                if !ids.contains(&incoming_user_id) {
+                  return Err(Error::from_reason(format!(
+                    "Unexpected user id in add proposal: {}",
+                    incoming_user_id
+                  )));
+                }
+              }
+
               commit_adds_members = true;
             } else if let Proposal::Remove(remove_proposal) = proposal.proposal() {
               let leaf_index = remove_proposal.removed();
@@ -604,6 +652,7 @@ impl DaveSession {
 
   /// Process a welcome message.
   /// @param welcome The welcome message to process.
+  /// @throws Will throw an error if the welcome is invalid. Send an [opcode 31: dave_mls_invalid_commit_welcome](https://daveprotocol.com/#dave_mls_invalid_commit_welcome-31) if this occurs.
   /// @see https://daveprotocol.com/#dave_mls_welcome-30
   #[napi]
   pub fn process_welcome(&mut self, welcome: Buffer) -> napi::Result<()> {
@@ -618,6 +667,9 @@ impl DaveSession {
         "Cannot process a welcome without an external sender".to_string(),
       ));
     }
+
+    // TODO we are skipping using recognized user IDs in here for now
+    // See https://github.com/discord/libdave/blob/6e5ffbc1cb4eef6be96e8115c4626be598b7e501/cpp/src/dave/mls/session.cpp#L519
 
     debug!("Processing welcome");
 
@@ -678,6 +730,7 @@ impl DaveSession {
 
   /// Process a commit.
   /// @param commit The commit to process.
+  /// @throws Will throw an error if the commit is invalid. Send an [opcode 31: dave_mls_invalid_commit_welcome](https://daveprotocol.com/#dave_mls_invalid_commit_welcome-31) if this occurs.
   /// @see https://daveprotocol.com/#dave_mls_announce_commit_transition-29
   #[napi]
   pub fn process_commit(&mut self, commit: Buffer) -> napi::Result<()> {

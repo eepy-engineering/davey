@@ -5,15 +5,17 @@ export declare class DAVESession {
    * @param protocolVersion The protocol version to use.
    * @param userId The user ID of the session.
    * @param channelId The channel ID of the session.
+   * @param keyPair The key pair to use for this session. Will generate a new one if not specified.
    */
-  constructor(protocolVersion: number, userId: string, channelId: string)
+  constructor(protocolVersion: number, userId: string, channelId: string, keyPair?: SigningKeyPair | undefined | null)
   /**
    * Resets and re-initializes the session.
    * @param protocolVersion The protocol version to use.
    * @param userId The user ID of the session.
    * @param channelId The channel ID of the session.
+   * @param keyPair The key pair to use for this session. Will generate a new one if not specified.
    */
-  reinit(protocolVersion: number, userId: string, channelId: string): void
+  reinit(protocolVersion: number, userId: string, channelId: string, keyPair?: SigningKeyPair | undefined | null): void
   /**
    * Resets the session by deleting the group and clearing the storage.
    * If you want to re-initialize the session, use {@link reinit}.
@@ -57,19 +59,22 @@ export declare class DAVESession {
    * Process proposals from an opcode 27 payload.
    * @param operationType The operation type of the proposals.
    * @param proposals The vector of proposals or proposal refs of the payload. (depending on operation type)
+   * @param recognizedUserIds The recognized set of user IDs gathered from the voice gateway. Recommended to set so that incoming users are checked against.
    * @returns A commit (if there were queued proposals) and a welcome (if a member was added) that should be used to send an [opcode 28: dave_mls_commit_welcome](https://daveprotocol.com/#dave_mls_commit_welcome-28) ONLY if a commit was returned.
    * @see https://daveprotocol.com/#dave_mls_proposals-27
    */
-  processProposals(operationType: ProposalsOperationType, proposals: Buffer): ProposalsResult
+  processProposals(operationType: ProposalsOperationType, proposals: Buffer, recognizedUserIds?: Array<string> | undefined | null): ProposalsResult
   /**
    * Process a welcome message.
    * @param welcome The welcome message to process.
+   * @throws Will throw an error if the welcome is invalid. Send an [opcode 31: dave_mls_invalid_commit_welcome](https://daveprotocol.com/#dave_mls_invalid_commit_welcome-31) if this occurs.
    * @see https://daveprotocol.com/#dave_mls_welcome-30
    */
   processWelcome(welcome: Buffer): void
   /**
    * Process a commit.
    * @param commit The commit to process.
+   * @throws Will throw an error if the commit is invalid. Send an [opcode 31: dave_mls_invalid_commit_welcome](https://daveprotocol.com/#dave_mls_invalid_commit_welcome-31) if this occurs.
    * @see https://daveprotocol.com/#dave_mls_announce_commit_transition-29
    */
   processCommit(commit: Buffer): void
