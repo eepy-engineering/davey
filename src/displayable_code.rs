@@ -11,15 +11,21 @@ pub fn generate_displayable_code(
   group_size: u32,
 ) -> Result<String> {
   if data.len() < desired_length as usize {
-    return Err(napi_invalid_arg_error!("data.byteLength must be greater than or equal to desiredLength"));
+    return Err(napi_invalid_arg_error!(
+      "data.byteLength must be greater than or equal to desiredLength"
+    ));
   }
 
   if desired_length % group_size != 0 {
-    return Err(napi_invalid_arg_error!("desiredLength must be a multiple of groupSize"));
+    return Err(napi_invalid_arg_error!(
+      "desiredLength must be a multiple of groupSize"
+    ));
   }
 
   if group_size > MAX_GROUP_SIZE {
-    return Err(napi_invalid_arg_error!("groupSize must be less than or equal to {MAX_GROUP_SIZE}"));
+    return Err(napi_invalid_arg_error!(
+      "groupSize must be less than or equal to {MAX_GROUP_SIZE}"
+    ));
   }
 
   generate_displayable_code_internal(&data, desired_length as usize, group_size as usize)

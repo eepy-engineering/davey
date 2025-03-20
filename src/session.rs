@@ -1,7 +1,7 @@
 use log::{debug, trace, warn};
 use napi::{
   bindgen_prelude::{AsyncTask, Buffer},
-  Error
+  Error,
 };
 use openmls::{
   group::*,
@@ -143,9 +143,8 @@ impl DaveSession {
         key_pair.public.into(),
       )
     } else {
-      SignatureKeyPair::new(ciphersuite.signature_algorithm()).map_err(|err| {
-        napi_error!("Error generating a signature key pair: {err}")
-      })?
+      SignatureKeyPair::new(ciphersuite.signature_algorithm())
+        .map_err(|err| napi_error!("Error generating a signature key pair: {err}"))?
     };
     let credential_with_key = CredentialWithKey {
       credential: credential.into(),
@@ -205,9 +204,8 @@ impl DaveSession {
         key_pair.public.into(),
       )
     } else {
-      SignatureKeyPair::new(ciphersuite.signature_algorithm()).map_err(|err| {
-        napi_error!("Error generating a signature key pair: {err}")
-      })?
+      SignatureKeyPair::new(ciphersuite.signature_algorithm())
+        .map_err(|err| napi_error!("Error generating a signature key pair: {err}"))?
     };
     let credential_with_key = CredentialWithKey {
       credential: credential.into(),
@@ -321,7 +319,9 @@ impl DaveSession {
   #[napi]
   pub fn get_epoch_authenticator(&self) -> napi::Result<Buffer> {
     if self.group.is_none() || self.status == SessionStatus::PENDING {
-      return Err(napi_error!( "Cannot epoch authenticator without an established MLS group"));
+      return Err(napi_error!(
+        "Cannot epoch authenticator without an established MLS group"
+      ));
     }
 
     Ok(Buffer::from(
@@ -351,7 +351,9 @@ impl DaveSession {
   #[napi]
   pub fn set_external_sender(&mut self, external_sender_data: Buffer) -> napi::Result<()> {
     if self.status == SessionStatus::AWAITING_RESPONSE || self.status == SessionStatus::ACTIVE {
-      return Err(napi_error!("Cannot set an external sender after joining an established group"));
+      return Err(napi_error!(
+        "Cannot set an external sender after joining an established group"
+      ));
     }
 
     let external_sender = ExternalSender::tls_deserialize_exact_bytes(&external_sender_data)
@@ -456,9 +458,7 @@ impl DaveSession {
     recognized_user_ids: Option<Vec<String>>,
   ) -> napi::Result<ProposalsResult> {
     if self.group.is_none() {
-      return Err(napi_error!(
-        "Cannot process proposals without a group"
-      ));
+      return Err(napi_error!("Cannot process proposals without a group"));
     }
 
     let group = self.group.as_mut().unwrap();
@@ -507,9 +507,7 @@ impl DaveSession {
                   .credential()
                   .serialized_content()
                   .try_into()
-                  .map_err(|err| {
-                    napi_error!("Failed to convert proposal user id: {err}")
-                  })?,
+                  .map_err(|err| napi_error!("Failed to convert proposal user id: {err}"))?,
               );
 
               debug!(
@@ -552,9 +550,7 @@ impl DaveSession {
               .store_pending_proposal(self.provider.storage(), *proposal)
               .map_err(|err| napi_error!("Could not store proposal: {err}"))?;
           }
-          _ => {
-            return Err(napi_error!("ProcessedMessage is not a ProposalMessage"))
-          }
+          _ => return Err(napi_error!("ProcessedMessage is not a ProposalMessage")),
         }
       }
     } else {
@@ -577,9 +573,7 @@ impl DaveSession {
       debug!("No proposals left to commit, reverting to previous state");
       group
         .clear_pending_commit(self.provider.storage())
-        .map_err(|err| {
-          napi_error!("Error removing previously pending commit: {err}")
-        })?;
+        .map_err(|err| napi_error!("Error removing previously pending commit: {err}"))?;
       if self.status == SessionStatus::AWAITING_RESPONSE {
         // FIXME should pending groups have revoked proposals and still be pending? id assume the voice server signals to recreate the group
         self.status = SessionStatus::ACTIVE
@@ -595,9 +589,7 @@ impl DaveSession {
       warn!("A pending commit was already created! Removing...");
       group
         .clear_pending_commit(self.provider.storage())
-        .map_err(|err| {
-          napi_error!("Error removing previously pending commit: {err}")
-        })?;
+        .map_err(|err| napi_error!("Error removing previously pending commit: {err}"))?;
     }
 
     let (commit, welcome, _group_info) = group
@@ -612,16 +604,17 @@ impl DaveSession {
       match welcome {
         Some(mls_message_out) => match mls_message_out.body() {
           MlsMessageBodyOut::Welcome(welcome) => {
-            welcome_buffer = Some(Buffer::from(welcome.tls_serialize_detached().map_err(
-              |err| napi_error!("Error serializing welcome: {err}"),
-            )?))
+            welcome_buffer =
+              Some(Buffer::from(welcome.tls_serialize_detached().map_err(
+                |err| napi_error!("Error serializing welcome: {err}"),
+              )?))
           }
-          _ => {
-            return Err(napi_error!("MLSMessage was not a Welcome"))
-          }
+          _ => return Err(napi_error!("MLSMessage was not a Welcome")),
         },
         _ => {
-          return Err(napi_error!("Welcome was not returned when there are new members"))
+          return Err(napi_error!(
+            "Welcome was not returned when there are new members"
+          ))
         }
       }
     }
@@ -643,11 +636,15 @@ impl DaveSession {
   #[napi]
   pub fn process_welcome(&mut self, welcome: Buffer) -> napi::Result<()> {
     if self.group.is_some() && self.status == SessionStatus::ACTIVE {
-      return Err(napi_error!("Cannot process a welcome after being in an established group"));
+      return Err(napi_error!(
+        "Cannot process a welcome after being in an established group"
+      ));
     }
 
     if self.external_sender.is_none() {
-      return Err(napi_error!("Cannot process a welcome without an external sender"));
+      return Err(napi_error!(
+        "Cannot process a welcome without an external sender"
+      ));
     }
 
     // TODO we are skipping using recognized user IDs in here for now
@@ -669,21 +666,25 @@ impl DaveSession {
 
     let external_senders = staged_join.group_context().extensions().external_senders();
     if external_senders.is_none() {
-      return Err(napi_error!("Welcome is missing an external senders extension"));
+      return Err(napi_error!(
+        "Welcome is missing an external senders extension"
+      ));
     }
 
     let external_senders = external_senders.unwrap();
     if external_senders.len() != 1 {
-      return Err(napi_error!("Welcome lists an unexpected amount of external senders"));
+      return Err(napi_error!(
+        "Welcome lists an unexpected amount of external senders"
+      ));
     }
 
     if external_senders.first().unwrap() != self.external_sender.as_ref().unwrap() {
       return Err(napi_error!("Welcome lists an unexpected external sender"));
     }
 
-    let group = staged_join.into_group(&self.provider).map_err(|err| {
-      napi_error!("Error joining group from staged welcome: {err}")
-    })?;
+    let group = staged_join
+      .into_group(&self.provider)
+      .map_err(|err| napi_error!("Error joining group from staged welcome: {err}"))?;
 
     if self.group.is_some() {
       let mut pending_group = self.group.take().unwrap();
@@ -746,8 +747,8 @@ impl DaveSession {
         .map_err(|err| napi_error!("Error merging pending commit: {err}"))?;
     } else {
       // Someone elses commit, go through the usual stuff
-      let processed_message = processed_message_result
-        .map_err(|err| napi_error!("Could not process message: {err}"))?;
+      let processed_message =
+        processed_message_result.map_err(|err| napi_error!("Could not process message: {err}"))?;
 
       match processed_message.into_content() {
         ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
@@ -755,9 +756,7 @@ impl DaveSession {
             .merge_staged_commit(&self.provider, *staged_commit)
             .map_err(|err| napi_error!("Could not stage commit: {err}"))?;
         }
-        _ => {
-          return Err(napi_error!("ProcessedMessage is not a StagedCommitMessage"))
-        }
+        _ => return Err(napi_error!("ProcessedMessage is not a StagedCommitMessage")),
       }
     }
 
@@ -817,7 +816,9 @@ impl DaveSession {
     user_id: String,
   ) -> napi::Result<Vec<Vec<u8>>> {
     if self.group.is_none() || self.status == SessionStatus::PENDING {
-      return Err(napi_error!("Cannot get fingerprint without an established group"));
+      return Err(napi_error!(
+        "Cannot get fingerprint without an established group"
+      ));
     }
 
     let our_uid = self.user_id_as_u64()?;
@@ -900,7 +901,9 @@ impl DaveSession {
   /// @see https://daveprotocol.com/#sender-key-derivation
   fn get_key_ratchet(&self, user_id: u64) -> napi::Result<HashRatchet> {
     if self.group.is_none() || self.status == SessionStatus::PENDING {
-      return Err(napi_error!("Cannot get key ratchet without an established group"));
+      return Err(napi_error!(
+        "Cannot get key ratchet without an established group"
+      ));
     }
 
     let base_secret = self

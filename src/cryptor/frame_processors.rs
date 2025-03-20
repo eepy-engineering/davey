@@ -333,7 +333,9 @@ impl OutboundFrameProcessor {
 
     // TODO we dont need to but maybe add more codecs later
     if self.frame_codec != Codec::OPUS {
-      return Err(napi_invalid_arg_error!("Unsupported codec for frame encryption"));
+      return Err(napi_invalid_arg_error!(
+        "Unsupported codec for frame encryption"
+      ));
     }
 
     self.frame_codec = codec;

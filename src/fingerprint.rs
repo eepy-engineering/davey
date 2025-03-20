@@ -51,7 +51,9 @@ fn generate_key_fingerprint_internal(
   user_id: u64,
 ) -> napi::Result<Vec<u8>> {
   if version != 0 {
-    return Err(napi_invalid_arg_error!("Unsupported fingerprint format version"));
+    return Err(napi_invalid_arg_error!(
+      "Unsupported fingerprint format version"
+    ));
   }
 
   if key.is_empty() {
@@ -77,8 +79,8 @@ fn pairwise_fingerprints_internal(mut fingerprints: Vec<Vec<u8>>) -> napi::Resul
     a.len().cmp(&b.len())
   });
 
-  let params = Params::new(14, 8, 2, 64)
-    .map_err(|_| napi_error!("Failed to create scrypt params"))?;
+  let params =
+    Params::new(14, 8, 2, 64).map_err(|_| napi_error!("Failed to create scrypt params"))?;
 
   let mut output = vec![0u8; 64];
 
