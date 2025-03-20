@@ -20,7 +20,7 @@ pub fn generate_key_fingerprint(
 ) -> napi::Result<Buffer> {
   let user_id = user_id
     .parse::<u64>()
-    .map_err(|_| Error::from_reason("Invalid user id".to_owned()))?;
+    .map_err(|_| napi_invalid_arg_error!("Invalid user id"))?;
   let result = generate_key_fingerprint_internal(version, key.to_vec(), user_id)?;
   Ok(Buffer::from(result))
 }
@@ -51,13 +51,11 @@ fn generate_key_fingerprint_internal(
   user_id: u64,
 ) -> napi::Result<Vec<u8>> {
   if version != 0 {
-    return Err(Error::from_reason(
-      "Unsupported fingerprint format version".to_owned(),
-    ));
+    return Err(napi_invalid_arg_error!("Unsupported fingerprint format version"));
   }
 
   if key.is_empty() {
-    return Err(Error::from_reason("Key is zero-length".to_owned()));
+    return Err(napi_invalid_arg_error!("Key is zero-length"));
   }
 
   let mut result: Vec<u8> = vec![];
@@ -80,7 +78,7 @@ fn pairwise_fingerprints_internal(mut fingerprints: Vec<Vec<u8>>) -> napi::Resul
   });
 
   let params = Params::new(14, 8, 2, 64)
-    .map_err(|_| Error::from_reason("Failed to create scrypt params".to_owned()))?;
+    .map_err(|_| napi_error!("Failed to create scrypt params"))?;
 
   let mut output = vec![0u8; 64];
 
@@ -90,7 +88,7 @@ fn pairwise_fingerprints_internal(mut fingerprints: Vec<Vec<u8>>) -> napi::Resul
     &params,
     &mut output,
   )
-  .map_err(|_| Error::from_reason("Failed to use scrypt to hash".to_owned()))?;
+  .map_err(|_| napi_error!("Failed to use scrypt to hash"))?;
 
   Ok(output)
 }
@@ -111,11 +109,11 @@ impl Task for AsyncPairwiseFingerprint {
     let user_id_a = self
       .user_id_a
       .parse::<u64>()
-      .map_err(|_| Error::from_reason("Invalid user id".to_owned()))?;
+      .map_err(|_| napi_invalid_arg_error!("Invalid user id"))?;
     let user_id_b = self
       .user_id_b
       .parse::<u64>()
-      .map_err(|_| Error::from_reason("Invalid user id".to_owned()))?;
+      .map_err(|_| napi_invalid_arg_error!("Invalid user id"))?;
 
     let fingerprints = vec![
       generate_key_fingerprint_internal(self.version, self.key_a.to_vec(), user_id_a)?,
@@ -147,7 +145,7 @@ impl Task for AsyncPairwiseFingerprintSession {
     }
 
     if self.fingerprints.is_none() {
-      return Err(Error::from_reason("Invalid fingerprints".to_owned()));
+      return Err(napi_error!("Invalid fingerprints"));
     }
 
     let output = pairwise_fingerprints_internal(self.fingerprints.clone().unwrap())?;
@@ -175,7 +173,7 @@ impl Task for AsyncSessionVerificationCode {
     }
 
     if self.fingerprints.is_none() {
-      return Err(Error::from_reason("Invalid fingerprints".to_owned()));
+      return Err(napi_error!("Invalid fingerprints"));
     }
 
     let output = pairwise_fingerprints_internal(self.fingerprints.clone().unwrap())?;

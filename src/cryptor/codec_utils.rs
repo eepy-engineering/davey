@@ -7,8 +7,6 @@ pub fn process_frame_opus(processor: &mut OutboundFrameProcessor, frame: &[u8]) 
   true
 }
 
-// TODO finish codec_utils
-
 pub fn validate_encrypted_frame(processor: &OutboundFrameProcessor, _frame: &[u8]) -> bool {
   let codec = &processor.frame_codec;
   if *codec != Codec::H264 && *codec != Codec::H265 {

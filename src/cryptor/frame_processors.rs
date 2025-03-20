@@ -337,7 +337,7 @@ impl OutboundFrameProcessor {
 
     let mut success = false;
 
-    // TODO add more codecs
+    // TODO we dont need to but maybe add more codecs
     match self.frame_codec {
       Codec::OPUS => {
         success = process_frame_opus(self, frame);

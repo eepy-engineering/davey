@@ -1,5 +1,4 @@
 use log::{debug, trace};
-use napi::Error;
 use std::collections::HashMap;
 
 use super::mlspp_crypto::derive_tree_secret;
@@ -56,9 +55,7 @@ impl HashRatchet {
     }
 
     if self.next_generation > generation {
-      return Err(Error::from_reason(
-        "Tried to request an expired key".to_string(),
-      ));
+      return Err(napi_error!("Tried to request an expired key"));
     }
 
     debug!(
@@ -67,10 +64,10 @@ impl HashRatchet {
     );
     while self.next_generation <= generation {
       self.next().map_err(|err| {
-        Error::from_reason(format!(
+        napi_error!(
           "Error getting next generation ({:?}): {err}",
           self.next_generation
-        ))
+        )
       })?;
     }
 

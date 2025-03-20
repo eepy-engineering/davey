@@ -7,6 +7,17 @@ use rand::rngs::OsRng;
 #[macro_use]
 extern crate napi_derive;
 
+macro_rules! napi_error {
+  ($($arg:tt)*) => {
+      napi::Error::new(napi::Status::GenericFailure, format!($($arg)*))
+  };
+}
+macro_rules! napi_invalid_arg_error {
+  ($($arg:tt)*) => {
+      napi::Error::new(napi::Status::InvalidArg, format!($($arg)*))
+  };
+}
+
 pub type DAVEProtocolVersion = u16;
 
 mod session;

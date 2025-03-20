@@ -1,5 +1,4 @@
 use aes_gcm::{aead::AeadMutInPlace, aes::Aes128, AesGcm, KeyInit};
-use napi::Error;
 use sha2::digest::consts::{U12, U8};
 
 type Aes128GcmModified = AesGcm<Aes128, U12, U8>;
@@ -12,7 +11,7 @@ impl AeadCipher {
   pub fn new(key: &[u8]) -> napi::Result<Self> {
     Ok(Self {
       key: Aes128GcmModified::new_from_slice(key)
-        .map_err(|err| Error::from_reason(format!("AeadCipher initialization error: {err}")))?,
+        .map_err(|err| napi_error!("AeadCipher initialization error: {err}"))?,
     })
   }
 
@@ -20,7 +19,7 @@ impl AeadCipher {
     let tag = self
       .key
       .encrypt_in_place_detached(nonce.into(), aad, buffer)
-      .map_err(|err| Error::from_reason(format!("AeadCipher encrypt error: {err}")))?;
+      .map_err(|err| napi_error!("AeadCipher encrypt error: {err}"))?;
     Ok(tag.to_vec())
   }
 
@@ -34,7 +33,7 @@ impl AeadCipher {
     self
       .key
       .decrypt_in_place_detached(nonce.into(), aad, buffer, tag.into())
-      .map_err(|err| Error::from_reason(format!("AeadCipher decrypt error: {err}")))?;
+      .map_err(|err| napi_error!("AeadCipher decrypt error: {err}"))?;
     Ok(())
   }
 }

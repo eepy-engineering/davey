@@ -11,24 +11,15 @@ pub fn generate_displayable_code(
   group_size: u32,
 ) -> Result<String> {
   if data.len() < desired_length as usize {
-    return Err(Error::new(
-      Status::InvalidArg,
-      "data.byteLength must be greater than or equal to desiredLength".to_string(),
-    ));
+    return Err(napi_invalid_arg_error!("data.byteLength must be greater than or equal to desiredLength"));
   }
 
   if desired_length % group_size != 0 {
-    return Err(Error::new(
-      Status::InvalidArg,
-      "desiredLength must be a multiple of groupSize".to_string(),
-    ));
+    return Err(napi_invalid_arg_error!("desiredLength must be a multiple of groupSize"));
   }
 
   if group_size > MAX_GROUP_SIZE {
-    return Err(Error::new(
-      Status::InvalidArg,
-      format!("groupSize must be less than or equal to {}", MAX_GROUP_SIZE),
-    ));
+    return Err(napi_invalid_arg_error!("groupSize must be less than or equal to {MAX_GROUP_SIZE}"));
   }
 
   generate_displayable_code_internal(&data, desired_length as usize, group_size as usize)
@@ -48,7 +39,7 @@ pub fn generate_displayable_code_internal(
     for j in (1..=group_size).rev() {
       let next_byte = data
         .get(i + (group_size - j))
-        .ok_or_else(|| Error::from_reason("Out of bounds access from data array".to_string()))?;
+        .ok_or_else(|| napi_error!("Out of bounds access from data array"))?;
 
       group_value = (group_value << 8) | (*next_byte as u64);
     }

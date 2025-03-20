@@ -11,7 +11,6 @@
 
 use hmac::{Hmac, Mac};
 use log::{debug, trace};
-use napi::Error;
 use openmls::prelude::{
   tls_codec::{self, Serialize},
   TlsSerialize, TlsSize, VLBytes,
@@ -38,7 +37,7 @@ fn hkdf_expand(prk: &[u8], info: &[u8], size: usize) -> napi::Result<Vec<u8>> {
     block.push(i);
 
     let mut hmac = Hmac::<Sha256>::new_from_slice(prk)
-      .map_err(|_| Error::from_reason("Invalid length in hkdf_expand".to_string()))?;
+      .map_err(|_| napi_error!("Invalid length in hkdf_expand"))?;
     hmac.update(&block);
     ti = hmac.finalize().into_bytes().to_vec();
 
@@ -70,7 +69,7 @@ fn expand_with_label(
   trace!("  label: {:x?}", kdf_label);
   let info = kdf_label
     .tls_serialize_detached()
-    .map_err(|_| Error::from_reason("Failed to deserialize KDF label".to_string()))?;
+    .map_err(|_| napi_error!("Failed to deserialize KDF label"))?;
   trace!("  serialized info: {:x?}", info);
   trace!("  secret: {:x?}", secret);
   hkdf_expand(secret, &info, length)
