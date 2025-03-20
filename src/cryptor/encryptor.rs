@@ -105,7 +105,13 @@ impl Encryptor {
     let mut success = true;
 
     let mut frame_processor = self.get_or_create_frame_processor();
-    frame_processor.process_frame(frame, codec);
+    let result = frame_processor.process_frame(frame, codec);
+    if result.is_err() {
+      let err = result.err().unwrap();
+      self.return_frame_processor(frame_processor);
+      warn!("encryption failed, {err}");
+      return false;
+    }
 
     let unencrypted_ranges = &frame_processor.unencrypted_ranges;
     let ranges_size = unencrypted_ranges_size(unencrypted_ranges);

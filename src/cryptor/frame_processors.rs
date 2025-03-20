@@ -328,25 +328,19 @@ impl OutboundFrameProcessor {
     self.unencrypted_ranges.clear();
   }
 
-  pub fn process_frame(&mut self, frame: &[u8], codec: Codec) {
+  pub fn process_frame(&mut self, frame: &[u8], codec: Codec) -> napi::Result<()> {
     self.reset();
+
+    // TODO we dont need to but maybe add more codecs later
+    if self.frame_codec != Codec::OPUS {
+      return Err(napi_invalid_arg_error!("Unsupported codec for frame encryption"));
+    }
 
     self.frame_codec = codec;
     self.unencrypted_bytes.reserve(frame.len());
     self.encrypted_bytes.reserve(frame.len());
 
-    let mut success = false;
-
-    // TODO we dont need to but maybe add more codecs
-    match self.frame_codec {
-      Codec::OPUS => {
-        success = process_frame_opus(self, frame);
-      }
-      _ => {
-        // TODO move this to a result rather than a panic
-        panic!("Unsupported codec for frame encryption");
-      }
-    }
+    let success = process_frame_opus(self, frame);
 
     if !success {
       self.frame_index = 0;
@@ -357,6 +351,7 @@ impl OutboundFrameProcessor {
     }
 
     self.ciphertext_bytes.resize(self.encrypted_bytes.len(), 0);
+    Ok(())
   }
 
   pub fn reconstruct_frame(&self, frame: &mut [u8]) -> usize {
@@ -373,6 +368,7 @@ impl OutboundFrameProcessor {
     )
   }
 
+  #[allow(dead_code)]
   fn add_unencrypted_bytes(&mut self, data: &[u8]) {
     if let Some(last_range) = self.unencrypted_ranges.last_mut() {
       if last_range.offset + last_range.size == self.frame_index {

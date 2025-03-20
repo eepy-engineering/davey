@@ -156,13 +156,13 @@ impl Decryptor {
     let mut cipher = cipher_manager.get_cipher(generation);
 
     if cipher.is_none() {
-      warn!("decrypt failed, no cryptor found for generation {generation}");
+      warn!("decryption failed, no cryptor found for generation {generation}");
       return false;
     }
 
     // plaintext should be resized properly already
     if encrypted_frame.plaintext.len() != encrypted_frame.ciphertext.len() {
-      warn!("encryption failed, ciphertext mismatch (internal error!)");
+      warn!("decryption failed, ciphertext mismatch (internal error!)");
       return false;
     }
     encrypted_frame
