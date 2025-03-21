@@ -4,10 +4,10 @@
 
 A [Discord Audio & Video End-to-End Encryption (DAVE) Protocol](https://daveprotocol.com/) implementation using [OpenMLS](https://openmls.tech/) built with [NAPI-RS](https://napi.rs/).
 
-> Proper documentation does not exist yet, review the [type definitions](https://github.com/Snazzah/davey/blob/master/index.d.ts) for available methods.
+> Proper documentation and usage does not exist yet, review the [type definitions](https://github.com/Snazzah/davey/blob/master/index.d.ts) for available methods.
 
 ```ts
-import { DAVESession, ProposalsOperationType, MediaType } from '@snazzah/davey';
+import { DAVESession, ProposalsOperationType, MediaType, Codec } from '@snazzah/davey';
 
 const session = new DAVESession(
   1, // dave version
@@ -39,7 +39,11 @@ session.voicePrivacyCode; // a 30 digit string or an empty string for not starte
 
 // Encrypt/decrypt voice packets
 if (session.ready) {
+  // Encrypt packets with a specified media type and codec, use this before transport encryption
+  session.encrypt(MediaType.AUDIO, Codec.OPUS, packet);
+  // Really only opus is supported right now so just use the shorthand method
   session.encrypt_opus(packet);
+  // Decrypt a packet from a user, use this after transport decryption
   session.decrypt(userId, MediaType.AUDIO, incomingPacket);
 }
 ```
