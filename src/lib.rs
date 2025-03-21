@@ -20,7 +20,10 @@ macro_rules! napi_invalid_arg_error {
 
 /// The version of the davey package being used.
 #[napi]
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = match option_env!("npm_package_version") {
+  Some(version) => version,
+  None => env!("CARGO_PKG_VERSION"),
+};
 
 /// Whether davey is using a debug build.
 #[napi]
