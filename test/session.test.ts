@@ -42,6 +42,12 @@ const APPENDING_PROPOSALS = Buffer.from([
   0x35, 0xc2, 0xa7, 0xa2,
 ]);
 
+const REVOKING_PROPOSALS = Buffer.from([
+  0x21, 0x20, 0x62, 0x38, 0x6F, 0xFB, 0x20, 0xB2, 0x8F, 0x55, 0x6B, 0x24, 0x65, 0xC0, 0xA2, 0x52, 
+  0x0B, 0xA2, 0xB0, 0x74, 0xFC, 0xA0, 0x0E, 0x94, 0xB2, 0xFD, 0xEB, 0xC0, 0x49, 0x6D, 0x54, 0x4C, 
+  0xD6, 0xC0, 
+]);
+
 const EMPTY_BUFFER = Buffer.alloc(0);
 
 const SILENCE_FRAME = Buffer.from([0xf8, 0xff, 0xfe]);
@@ -144,6 +150,15 @@ const testOnRelease: TestFn | SkipFn = (DEBUG_BUILD ? test.skip : test);
     t.true(Buffer.isBuffer(result.commit), 'Expected result.commit to be a Buffer');
     t.true(Buffer.isBuffer(result.welcome), 'Expected result.welcome to be a Buffer');
     t.is(session.status, SessionStatus.AWAITING_RESPONSE);
+  });
+
+  test('processProposals() returns nothing when theres no queued proposals', (t) => {
+    const session = createSession(SessionStatus.PENDING);
+
+    session.processProposals(ProposalsOperationType.APPEND, APPENDING_PROPOSALS);
+    const result = session.processProposals(ProposalsOperationType.REVOKE, REVOKING_PROPOSALS);
+    t.deepEqual(Object.keys(result), []);
+    t.not(session.status, SessionStatus.AWAITING_RESPONSE);
   });
 
   test('processProposals() does not throw on recognized users', (t) => {

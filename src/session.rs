@@ -575,8 +575,13 @@ impl DaveSession {
         .clear_pending_commit(self.provider.storage())
         .map_err(|err| napi_error!("Error removing previously pending commit: {err}"))?;
       if self.status == SessionStatus::AWAITING_RESPONSE {
-        // FIXME should pending groups have revoked proposals and still be pending? id assume the voice server signals to recreate the group
-        self.status = SessionStatus::ACTIVE
+        self.status = {
+          if self.ready {
+            SessionStatus::ACTIVE
+          } else {
+            SessionStatus::PENDING
+          }
+        }
       }
       return Ok(ProposalsResult {
         commit: None,
