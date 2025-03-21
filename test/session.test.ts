@@ -1,6 +1,6 @@
-import test from 'ava';
+import test, { SkipFn, TestFn } from 'ava';
 
-import { DAVESession, MediaType, ProposalsOperationType, SessionStatus } from '../index';
+import { DAVESession, MediaType, ProposalsOperationType, SessionStatus, DEBUG_BUILD } from '../index';
 
 // These buffers are from a session in the channel 927310423890473011, as the user 158049329150427136 (Snazzah)
 // where the proposal is adding the user 158533742254751744
@@ -76,6 +76,9 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
   return session;
 };
 
+/** Only run this test on release builds, since tls-codec will panic on bad data in debug builds. */
+const testOnRelease: TestFn | SkipFn = (DEBUG_BUILD ? test.skip : test);
+
 // new DAVESession()
 {
   test('new DAVESession() creates session successfully', (t) => {
@@ -102,7 +105,7 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
     t.is(session.status, SessionStatus.PENDING);
   });
 
-  test('setExternalSender() throws on invalid data', (t) => {
+  testOnRelease('setExternalSender() throws on invalid data', (t) => {
     const invalidExternalSender = Buffer.from([0x40, 0x41]);
 
     const session = createSession();
@@ -164,7 +167,7 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
     );
   });
 
-  test('processProposals() throws on invalid proposals', (t) => {
+  testOnRelease('processProposals() throws on invalid proposals', (t) => {
     const session = createSession(SessionStatus.PENDING);
 
     t.throws(() => session.processProposals(ProposalsOperationType.APPEND, EMPTY_BUFFER));
@@ -194,7 +197,7 @@ const createSession = (status: SessionStatus = SessionStatus.INACTIVE) => {
     t.throws(() => createSession(SessionStatus.PENDING).processCommit(EMPTY_BUFFER));
   });
 
-  test('processCommit() throws on invalid commit', (t) => {
+  testOnRelease('processCommit() throws on invalid commit', (t) => {
     const session = createSession(SessionStatus.AWAITING_RESPONSE);
 
     t.throws(() => session.processCommit(EMPTY_BUFFER));

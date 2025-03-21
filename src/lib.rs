@@ -18,6 +18,14 @@ macro_rules! napi_invalid_arg_error {
   };
 }
 
+/// The version of the davey package being used.
+#[napi]
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Whether davey is using a debug build.
+#[napi]
+pub const DEBUG_BUILD: bool = cfg!(debug_assertions);
+
 pub type DAVEProtocolVersion = u16;
 
 mod session;

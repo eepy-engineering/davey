@@ -143,6 +143,9 @@ export declare const enum Codec {
 /** The maximum supported version of the DAVE protocol. */
 export const DAVE_PROTOCOL_VERSION: number
 
+/** Whether davey is using a debug build. */
+export const DEBUG_BUILD: boolean
+
 export interface DecryptionStats {
   /** Number of decryption successes */
   successes: number
@@ -213,3 +216,6 @@ export interface SigningKeyPair {
   private: Buffer
   public: Buffer
 }
+
+/** The version of the davey package being used. */
+export const VERSION: string
