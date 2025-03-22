@@ -332,13 +332,13 @@ impl OutboundFrameProcessor {
     self.reset();
 
     // TODO we dont need to but maybe add more codecs later
+    self.frame_codec = codec;
     if self.frame_codec != Codec::OPUS {
       return Err(napi_invalid_arg_error!(
         "Unsupported codec for frame encryption"
       ));
     }
 
-    self.frame_codec = codec;
     self.unencrypted_bytes.reserve(frame.len());
     self.encrypted_bytes.reserve(frame.len());
 
