@@ -356,6 +356,16 @@ impl DaveSession {
       ));
     }
 
+    // Delete group to avoid clashing
+    if self.group.is_some() {
+      self
+        .group
+        .take()
+        .unwrap()
+        .delete(self.provider.storage())
+        .map_err(|err| napi_error!("Error clearing previous group: {err}"))?;
+    }
+
     let external_sender = ExternalSender::tls_deserialize_exact_bytes(&external_sender_data)
       .map_err(|err| napi_error!("Failed to deserialize external sender: {err}"))?;
 
