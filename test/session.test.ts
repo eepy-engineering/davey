@@ -269,6 +269,6 @@ const testOnRelease: TestFn | SkipFn = DEBUG_BUILD ? test.skip : test;
 
   test('getDecryptionStats() returns stats', (t) => {
     const session = createSession(SessionStatus.ACTIVE);
-    t.deepEqual(session.getDecryptionStats(OTHER_USER_ID), { successes: 0, failures: 0, duration: 0, attempts: 0 });
+    t.deepEqual(session.getDecryptionStats(OTHER_USER_ID), { successes: 0, failures: 0, duration: 0, passthroughs: 0, attempts: 0 });
   });
 }
