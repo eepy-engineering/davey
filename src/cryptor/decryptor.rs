@@ -101,7 +101,7 @@ impl Decryptor {
 
     // If the frame is not encrypted and we can pass it through, do it
     if !local_frame.encrypted && self.can_passthrough() {
-      frame[..encrypted_frame.len()].clone_from_slice(&encrypted_frame);
+      frame[..encrypted_frame.len()].clone_from_slice(encrypted_frame);
       let stats = self.stats.get_mut(media_type).unwrap();
       stats.passthroughs += 1;
       self.return_frame_processor(local_frame);
