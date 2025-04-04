@@ -1108,7 +1108,8 @@ impl DaveSession {
   #[napi]
   pub fn set_passthrough_mode(&mut self, passthrough_mode: bool, transition_expiry: Option<u32>) {
     for (_, decryptor) in self.decryptors.iter_mut() {
-      decryptor.transition_to_passthrough_mode(passthrough_mode, transition_expiry.unwrap_or(10) as usize);
+      decryptor
+        .transition_to_passthrough_mode(passthrough_mode, transition_expiry.unwrap_or(10) as usize);
     }
   }
 

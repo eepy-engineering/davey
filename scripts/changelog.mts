@@ -39,7 +39,7 @@ const lastVersion = changelog.match(/\n## \[(\d+\.\d+\.\d+)\] - /)?.[1];
 if (!lastVersion) throw new Error("Can't find last version in changelog.");
 
 const lastLine = `[${currentVersion}]: https://github.com/Snazzah/davey/compare/v${lastVersion}...v${currentVersion}`;
-console.log({lastVersion})
+console.log({ lastVersion });
 
 // Update footer
 arr = futureChangelog

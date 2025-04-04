@@ -1,5 +1,8 @@
 use std::{
-  cmp::min, collections::{HashMap, VecDeque}, sync::Arc, time::{Duration, Instant}
+  cmp::min,
+  collections::{HashMap, VecDeque},
+  sync::Arc,
+  time::{Duration, Instant},
 };
 
 use log::{trace, warn};
@@ -210,7 +213,8 @@ impl Decryptor {
     if mode {
       self.allow_passthrough_until = None;
     } else {
-      let max_expiry = self.clock.elapsed() + Duration::new(transition_expiry.try_into().unwrap(), 0);
+      let max_expiry =
+        self.clock.elapsed() + Duration::new(transition_expiry.try_into().unwrap(), 0);
       self.allow_passthrough_until = {
         if let Some(expiry) = self.allow_passthrough_until {
           Some(min(expiry, max_expiry))
@@ -222,7 +226,8 @@ impl Decryptor {
   }
 
   pub fn can_passthrough(&self) -> bool {
-    self.allow_passthrough_until.is_none() || self.allow_passthrough_until.unwrap() > self.clock.elapsed()
+    self.allow_passthrough_until.is_none()
+      || self.allow_passthrough_until.unwrap() > self.clock.elapsed()
   }
 
   pub fn get_max_plaintext_byte_size(
