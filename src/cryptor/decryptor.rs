@@ -1,7 +1,5 @@
 use std::{
-  collections::{HashMap, VecDeque},
-  sync::Arc,
-  time::{Duration, Instant},
+  cmp::min, collections::{HashMap, VecDeque}, sync::Arc, time::{Duration, Instant}
 };
 
 use log::{trace, warn};
@@ -22,12 +20,15 @@ pub struct DecryptionStats {
   pub duration: u32,
   /// Total amounts of decryption attempts
   pub attempts: u32,
+  /// Total amounts of packets that passed through
+  pub passthroughs: u32,
 }
 
 pub struct Decryptor {
   clock: Arc<Instant>,
   cryptor_managers: VecDeque<CipherManager>,
   frame_processors: Vec<InboundFrameProcessor>,
+  allow_passthrough_until: Option<Duration>, // None == TimePoint::max()
   pub stats: HashMap<MediaType, DecryptionStats>,
 }
 
@@ -41,6 +42,7 @@ impl Decryptor {
         failures: 0,
         duration: 0,
         attempts: 0,
+        passthroughs: 0,
       },
     );
     stats.insert(
@@ -50,6 +52,7 @@ impl Decryptor {
         failures: 0,
         duration: 0,
         attempts: 0,
+        passthroughs: 0,
       },
     );
 
@@ -57,6 +60,7 @@ impl Decryptor {
       clock: Arc::new(Instant::now()),
       cryptor_managers: VecDeque::new(),
       frame_processors: Vec::new(),
+      allow_passthrough_until: Some(Duration::new(0, 0)),
       stats,
     }
   }
@@ -92,12 +96,19 @@ impl Decryptor {
     let mut local_frame = self.get_or_create_frame_processor();
     local_frame.parse_frame(encrypted_frame);
 
-    // TODO maybe have passthrough mode? at the moment this should be controlled by the implementing client
+    // If the frame is not encrypted and we can pass it through, do it
+    if !local_frame.encrypted && self.can_passthrough() {
+      frame[..encrypted_frame.len()].clone_from_slice(&encrypted_frame);
+      let stats = self.stats.get_mut(media_type).unwrap();
+      stats.passthroughs += 1;
+      self.return_frame_processor(local_frame);
+      return encrypted_frame.len();
+    }
 
     let stats = self.stats.get_mut(media_type).unwrap();
     // If the frame is not encrypted, and we can't pass it through, fail
     if !local_frame.encrypted {
-      warn!("decryption failed, frame is not encrypted");
+      warn!("decryption failed, frame is not encrypted and passthrough is disabled");
       stats.failures += 1;
       self.return_frame_processor(local_frame);
       return 0;
@@ -193,6 +204,25 @@ impl Decryptor {
     self
       .cryptor_managers
       .push_back(CipherManager::new(self.clock.clone(), ratchet));
+  }
+
+  pub fn transition_to_passthrough_mode(&mut self, mode: bool, transition_expiry: usize) {
+    if mode {
+      self.allow_passthrough_until = None;
+    } else {
+      let max_expiry = self.clock.elapsed() + Duration::new(transition_expiry.try_into().unwrap(), 0);
+      self.allow_passthrough_until = {
+        if let Some(expiry) = self.allow_passthrough_until {
+          Some(min(expiry, max_expiry))
+        } else {
+          Some(max_expiry)
+        }
+      }
+    }
+  }
+
+  pub fn can_passthrough(&self) -> bool {
+    self.allow_passthrough_until.is_none() || self.allow_passthrough_until.unwrap() > self.clock.elapsed()
   }
 
   pub fn get_max_plaintext_byte_size(

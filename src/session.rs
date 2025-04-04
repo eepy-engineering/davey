@@ -220,6 +220,7 @@ impl DaveSession {
     self.privacy_code.clear();
     self.encryptor = Encryptor::new();
     self.decryptors.clear();
+    self.ready = false;
 
     if self.external_sender.is_some() {
       self.create_pending_group()?;
@@ -254,7 +255,6 @@ impl DaveSession {
       .clear();
 
     self.status = SessionStatus::INACTIVE;
-    self.ready = false;
 
     Ok(())
   }
@@ -309,7 +309,7 @@ impl DaveSession {
     Ok(self.status)
   }
 
-  /// Whether this session has an established group and is ready to encrypt/decrypt frames.
+  /// Whether this session is ready to encrypt/decrypt frames.
   #[napi(getter)]
   pub fn ready(&self) -> napi::Result<bool> {
     Ok(self.ready)
@@ -1084,6 +1084,32 @@ impl DaveSession {
       .collect();
 
     Ok(user_ids)
+  }
+
+  /// Whether this user's key ratchet is in passthrough mode
+  /// @param userId The user ID
+  #[napi]
+  pub fn can_passthrough(&self, user_id: String) -> napi::Result<bool> {
+    let uid = user_id
+      .parse::<u64>()
+      .map_err(|_| napi_invalid_arg_error!("Invalid user id"))?;
+
+    let decryptor = self.decryptors.get(&uid);
+    if decryptor.is_none() {
+      return Err(napi_error!("No decryptor found for that user"));
+    }
+
+    Ok(decryptor.unwrap().can_passthrough())
+  }
+
+  /// Set the passthrough mode of all decryptors
+  /// @param passthroughMode Whether to enable passthrough mode
+  /// @param [transition_expiry=10] The transition expiry (in seconds) to use when disabling passthrough mode, defaults to 10 seconds
+  #[napi]
+  pub fn set_passthrough_mode(&mut self, passthrough_mode: bool, transition_expiry: Option<u32>) {
+    for (_, decryptor) in self.decryptors.iter_mut() {
+      decryptor.transition_to_passthrough_mode(passthrough_mode, transition_expiry.unwrap_or(10) as usize);
+    }
   }
 
   /// @ignore

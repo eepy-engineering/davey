@@ -31,7 +31,7 @@ export declare class DAVESession {
   get ciphersuite(): number
   /** The status of this session. */
   get status(): SessionStatus
-  /** Whether this session has an established group and is ready to encrypt/decrypt frames. */
+  /** Whether this session is ready to encrypt/decrypt frames. */
   get ready(): boolean
   /** Get the epoch authenticator of this session's group. */
   getEpochAuthenticator(): Buffer
@@ -125,6 +125,17 @@ export declare class DAVESession {
    * @returns An array of user IDs, or an empty array if there is no group.
    */
   getUserIds(): Array<string>
+  /**
+   * Whether this user's key ratchet is in passthrough mode
+   * @param userId The user ID
+   */
+  canPassthrough(userId: string): boolean
+  /**
+   * Set the passthrough mode of all decryptors
+   * @param passthroughMode Whether to enable passthrough mode
+   * @param [transition_expiry=10] The transition expiry (in seconds) to use when disabling passthrough mode, defaults to 10 seconds
+   */
+  setPassthroughMode(passthroughMode: boolean, transitionExpiry?: number | undefined | null): void
   /** @ignore */
   toString(): string
 }
@@ -155,6 +166,8 @@ export interface DecryptionStats {
   duration: number
   /** Total amounts of decryption attempts */
   attempts: number
+  /** Total amounts of packets that passed through */
+  passthroughs: number
 }
 
 export interface EncryptionStats {
