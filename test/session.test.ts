@@ -231,6 +231,35 @@ const testOnRelease: TestFn | SkipFn = DEBUG_BUILD ? test.skip : test;
   });
 }
 
+// epoch
+{
+  test('session.epoch is null when theres no group', (t) => {
+    t.is(createSession(SessionStatus.INACTIVE).epoch, null);
+  });
+
+  test('session.epoch is 0 when theres a pending group', (t) => {
+    t.is(createSession(SessionStatus.PENDING).epoch, 0n);
+    t.is(createSession(SessionStatus.AWAITING_RESPONSE).epoch, 0n);
+  });
+
+  test('session.epoch is updated when theres an active group', (t) => {
+    t.is(createSession(SessionStatus.ACTIVE).epoch, 1n);
+  });
+}
+
+// ownLeafIndex
+{
+  test('session.ownLeafIndex is null when theres no group', (t) => {
+    t.is(createSession(SessionStatus.INACTIVE).ownLeafIndex, null);
+  });
+
+  test('session.ownLeafIndex is not null when theres a group', (t) => {
+    t.is(createSession(SessionStatus.PENDING).ownLeafIndex, 0);
+    t.is(createSession(SessionStatus.AWAITING_RESPONSE).ownLeafIndex, 0);
+    t.is(createSession(SessionStatus.ACTIVE).ownLeafIndex, 0);
+  });
+}
+
 // getUserIds()
 {
   test('getUserIds() returns empty array on non-established groups', (t) => {

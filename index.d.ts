@@ -27,6 +27,10 @@ export declare class DAVESession {
   get userId(): string
   /** The channel ID (group ID in MLS standards) for this session. */
   get channelId(): string
+  /** The epoch for this session, `undefined` if there is no group yet. */
+  get epoch(): bigint | null
+  /** Your own leaf index for this session, `undefined` if there is no group yet. */
+  get ownLeafIndex(): number | null
   /** The ciphersuite being used in this session. */
   get ciphersuite(): number
   /** The status of this session. */

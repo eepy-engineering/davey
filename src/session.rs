@@ -297,6 +297,26 @@ impl DaveSession {
     )
   }
 
+  /// The epoch for this session, `undefined` if there is no group yet.
+  #[napi(getter)]
+  pub fn epoch(&self) -> napi::Result<Option<u64>> {
+    if self.group.is_none() {
+      return Ok(None);
+    }
+
+    Ok(Some(self.group.as_ref().unwrap().epoch().as_u64()))
+  }
+
+  /// Your own leaf index for this session, `undefined` if there is no group yet.
+  #[napi(getter)]
+  pub fn own_leaf_index(&self) -> napi::Result<Option<u32>> {
+    if self.group.is_none() {
+      return Ok(None);
+    }
+
+    Ok(Some(self.group.as_ref().unwrap().own_leaf_index().u32()))
+  }
+
   /// The ciphersuite being used in this session.
   #[napi(getter)]
   pub fn ciphersuite(&self) -> napi::Result<i32> {
@@ -893,6 +913,8 @@ impl DaveSession {
       });
       decryptor.transition_to_key_ratchet(ratchet);
     }
+
+    // TODO remove old decryptors
 
     // Update encryptor
     let user_id = self.user_id_as_u64()?;

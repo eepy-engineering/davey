@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 [dependencies]
 env_logger = "0.11.6"
 log = "0.4.26"
-napi = "3.0.0-alpha"
+napi = { version = "3.0.0-alpha", features = ["napi6"] }
 napi-derive = "3.0.0-alpha"
 openmls = { version = "0.6.0", features = ["js"] }
 openmls_basic_credential = "0.3.0"
