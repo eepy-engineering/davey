@@ -18,21 +18,7 @@ arr[1] =
 
 ## [${currentVersion}] - ${new Date().toISOString().slice(0, 10)}
 
-### Removed:
-
-- **[BREAKING]** description
-
-### Changed:
-
--
-
-### Added:
-
--
-
-### Fixed:
-
-- ` + arr[1];
+` + arr[1];
 futureChangelog = arr.join('## [Unreleased]');
 
 const lastVersion = changelog.match(/\n## \[(\d+\.\d+\.\d+)\] - /)?.[1];
