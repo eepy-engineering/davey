@@ -62,7 +62,7 @@ pub enum ProposalsOperationType {
   REVOKE = 1,
 }
 
-#[derive(Clone, Copy, Debug, FromPrimitive, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum SessionStatus {
   INACTIVE = 0,
@@ -71,10 +71,10 @@ pub enum SessionStatus {
   ACTIVE = 3,
 }
 
-pub enum ProposalResponse {
-  None,
-  Commit { commit: Vec<u8> },
-  Welcome { commit: Vec<u8>, welcome: Vec<u8> },
+/// Contains the commit and optional welcome for [dave_mls_commit_welcome (28)](https://daveprotocol.com/#dave_mls_commit_welcome-28).
+pub struct CommitWelcome {
+  pub commit: Vec<u8>,
+  pub welcome: Option<Vec<u8>>,
 }
 
 pub struct SigningKeyPair<'a> {
@@ -101,10 +101,7 @@ pub struct DaveSession {
 }
 
 impl DaveSession {
-  /// @param protocolVersion The protocol version to use.
-  /// @param userId The user ID of the session.
-  /// @param channelId The channel ID of the session.
-  /// @param keyPair The key pair to use for this session. Will generate a new one if not specified.
+  /// Creates a DAVE session. If no key pair is passed, one will be generated automatically.
   pub fn new(
     protocol_version: NonZeroU16,
     user_id: u64,
@@ -132,10 +129,6 @@ impl DaveSession {
   }
 
   /// Resets and re-initializes the session.
-  /// @param protocolVersion The protocol version to use.
-  /// @param userId The user ID of the session.
-  /// @param channelId The channel ID of the session.
-  /// @param keyPair The key pair to use for this session. Will generate a new one if not specified.
   pub fn reinit(
     &mut self,
     protocol_version: NonZeroU16,
@@ -192,7 +185,7 @@ impl DaveSession {
   }
 
   /// Resets the session by deleting the group and clearing the storage.
-  /// If you want to re-initialize the session, use {@link reinit}.
+  /// If you want to re-initialize the session, use [Self::reinit].
   pub fn reset(&mut self) -> Result<(), ResetError> {
     debug!("Resetting MLS session");
 
@@ -237,12 +230,12 @@ impl DaveSession {
     )
   }
 
-  /// The epoch for this session, `undefined` if there is no group yet.
+  /// The epoch for the current group.
   pub fn epoch(&self) -> Option<GroupEpoch> {
     self.group.as_ref().map(|group| group.epoch())
   }
 
-  /// Your own leaf index for this session, `undefined` if there is no group yet.
+  /// Your own leaf index for the current group.
   pub fn own_leaf_index(&self) -> Option<LeafNodeIndex> {
     self.group.as_ref().map(|group| group.own_leaf_index())
   }
@@ -264,27 +257,18 @@ impl DaveSession {
 
   /// Get the epoch authenticator of this session's group.
   pub fn get_epoch_authenticator(&self) -> Option<&EpochAuthenticator> {
-    // if self.group.is_none() || self.status == SessionStatus::PENDING {
-    //   bail!("Cannot epoch authenticator without an established MLS group");
-    // }
-
-    // Ok(self.group.as_ref().unwrap().epoch_authenticator().as_slice())
     self.group.as_ref().map(|group| group.epoch_authenticator())
   }
 
   /// Get the voice privacy code of this session's group.
-  /// The result of this is created and cached each time a new transition is executed.
-  /// This is the equivalent of `generateDisplayableCode(epochAuthenticator, 30, 5)`.
-  /// @returns The current voice privacy code, or an empty string if the session is not active.
-  /// @see https://daveprotocol.com/#displayable-codes
-  pub fn voice_privacy_code(&self) -> &str {
-    &self.privacy_code
+  /// A new privacy code is created and cached each time a new transition is executed.
+  /// See [Displayable Codes](https://daveprotocol.com/#displayable-codes)
+  pub fn voice_privacy_code(&self) -> Option<&str> {
+    self.privacy_code.is_empty().then_some(&self.privacy_code)
   }
 
   /// Set the external sender this session will recieve from.
-  /// @param externalSenderData The serialized external sender data.
-  /// @throws Will throw if the external sender is invalid, or if the group has been established already.
-  /// @see https://daveprotocol.com/#dave_mls_external_sender_package-25
+  /// See [dave_mls_external_sender_package (25)](https://daveprotocol.com/#dave_mls_external_sender_package-25).
   pub fn set_external_sender(
     &mut self,
     external_sender_data: &[u8],
@@ -310,6 +294,7 @@ impl DaveSession {
 
   /// Create, store, and return the serialized key package.
   /// Key packages are not meant to be reused, and will be recreated on each call of this function.
+  /// See [dave_mls_key_package (26)](https://daveprotocol.com/#dave_mls_key_package-26)
   pub fn create_key_package(&mut self) -> Result<Vec<u8>, CreateKeyPackageError> {
     // Set lifetime to max time span: https://daveprotocol.com/#validation
     let lifetime = {
@@ -374,19 +359,15 @@ impl DaveSession {
     Ok(())
   }
 
-  /// Process proposals from an opcode 27 payload.
-  /// @param operationType The operation type of the proposals.
-  /// @param proposals The vector of proposals or proposal refs of the payload. (depending on operation type)
-  /// @param recognizedUserIds The recognized set of user IDs gathered from the voice gateway. Recommended to set so that incoming users are checked against.
-  /// @returns A commit (if there were queued proposals) and a welcome (if a member was added) that should be used to send an [opcode 28: dave_mls_commit_welcome](https://daveprotocol.com/#dave_mls_commit_welcome-28) ONLY if a commit was returned.
-  /// @see https://daveprotocol.com/#dave_mls_proposals-27
-
+  /// Process proposals from [dave_mls_proposals (27)](https://daveprotocol.com/#dave_mls_proposals-27).
+  /// If the user wants to validate that all users in proposals are expected to be in the group, pass them in `expected_user_ids`.
+  /// If a [CommitWelcome] is returned, the user should send a [dave_mls_commit_welcome (28)](https://daveprotocol.com/#dave_mls_commit_welcome-28) to the gateway.
   pub fn process_proposals(
     &mut self,
     operation_type: ProposalsOperationType,
     proposals: &[u8],
-    recognized_user_ids: Option<&[u64]>,
-  ) -> Result<ProposalResponse, ProcessProposalsError> {
+    expected_user_ids: Option<&[u64]>,
+  ) -> Result<Option<CommitWelcome>, ProcessProposalsError> {
     let Some(group) = &mut self.group else {
       return Err(ProcessProposalsError::NoGroup);
     };
@@ -426,7 +407,7 @@ impl DaveSession {
 
               debug!("Storing add proposal for user {incoming_user_id}");
 
-              if let Some(ref ids) = recognized_user_ids {
+              if let Some(ref ids) = expected_user_ids {
                 if !ids.contains(&incoming_user_id) {
                   return Err(ProcessProposalsError::UnexpectedUser(incoming_user_id));
                 }
@@ -487,7 +468,7 @@ impl DaveSession {
           }
         }
       }
-      return Ok(ProposalResponse::None);
+      return Ok(None);
     }
 
     // libdave seems to overwrite pendingGroupCommit_ and then not use it anywhere else...
@@ -508,7 +489,7 @@ impl DaveSession {
       .tls_serialize_detached()
       .expect("failed to serialize commit");
 
-    if commit_adds_members {
+    let welcome = if commit_adds_members {
       let Some(mls_message_out) = welcome else {
         panic!("welcome was not returned when there are new members")
       };
@@ -516,21 +497,20 @@ impl DaveSession {
         panic!("message was not a welcome")
       };
 
-      Ok(ProposalResponse::Welcome {
-        commit,
-        welcome: welcome
+      Some(
+        welcome
           .tls_serialize_detached()
           .expect("failed to serialize welcome"),
-      })
+      )
     } else {
-      Ok(ProposalResponse::Commit { commit })
-    }
+      None
+    };
+
+    Ok(Some(CommitWelcome { commit, welcome }))
   }
 
-  /// Process a welcome message.
-  /// @param welcome The welcome message to process.
-  /// @throws Will throw an error if the welcome is invalid. Send an [opcode 31: dave_mls_invalid_commit_welcome](https://daveprotocol.com/#dave_mls_invalid_commit_welcome-31) if this occurs.
-  /// @see https://daveprotocol.com/#dave_mls_welcome-30
+  /// Process a welcome message from [dave_mls_welcome (30)](https://daveprotocol.com/#dave_mls_welcome-30).
+  /// Send a [dave_mls_invalid_commit_welcome (31)](https://daveprotocol.com/#dave_mls_invalid_commit_welcome-31) if the welcome couldn't be processed.
   pub fn process_welcome(&mut self, welcome: &[u8]) -> Result<(), ProcessWelcomeError> {
     if self.group.is_some() && self.status == SessionStatus::ACTIVE {
       return Err(ProcessWelcomeError::AlreadyInGroup);
@@ -588,10 +568,8 @@ impl DaveSession {
     Ok(())
   }
 
-  /// Process a commit.
-  /// @param commit The commit to process.
-  /// @throws Will throw an error if the commit is invalid. Send an [opcode 31: dave_mls_invalid_commit_welcome](https://daveprotocol.com/#dave_mls_invalid_commit_welcome-31) if this occurs.
-  /// @see https://daveprotocol.com/#dave_mls_announce_commit_transition-29
+  /// Process a commit from [dave_mls_announce_commit_transition (29)](https://daveprotocol.com/#dave_mls_announce_commit_transition-29).
+  /// Send a [dave_mls_invalid_commit_welcome (29)](https://daveprotocol.com/#dave_mls_announce_commit_transition-29) if the commit couldn't be processed.
   pub fn process_commit(&mut self, commit: &[u8]) -> Result<(), ProcessCommitError> {
     let Some(group) = &mut self.group else {
       return Err(ProcessCommitError::NoGroup);
@@ -642,7 +620,7 @@ impl DaveSession {
 
   /// Get the verification code of another member of the group.
   /// This is the equivalent of `generateDisplayableCode(getPairwiseFingerprint(0, userId), 45, 5)`.
-  /// @see https://daveprotocol.com/#displayable-codes
+  /// See [Displayable Codes](https://daveprotocol.com/#displayable-codes) in the DAVE whitepaper.
   pub fn get_verification_code(&self, user_id: u64) -> Result<String, GetVerificationCodeError> {
     let fingerprints = self.get_pairwise_fingerprint_internal(0, user_id)?;
     let output = pairwise_fingerprints_internal(fingerprints)?;
@@ -651,7 +629,7 @@ impl DaveSession {
   }
 
   /// Create a pairwise fingerprint of you and another member.
-  /// @see https://daveprotocol.com/#verification-fingerprint
+  /// See [Verification Fingerprint](https://daveprotocol.com/#verification-fingerprint) in the DAVE whitepaper.
   pub fn get_pairwise_fingerprint(
     &self,
     version: u16,
@@ -748,7 +726,7 @@ impl DaveSession {
     Ok(())
   }
 
-  /// @see https://daveprotocol.com/#sender-key-derivation
+  /// See [Sender Key Derivation](https://daveprotocol.com/#sender-key-derivation).
   fn get_key_ratchet(&self, user_id: u64) -> Result<HashRatchet, UpdateRatchetsError> {
     if self.status == SessionStatus::PENDING {
       return Err(UpdateRatchetsError::NoEstablishedGroup);
@@ -770,11 +748,7 @@ impl DaveSession {
     Ok(HashRatchet::new(base_secret))
   }
 
-  /// Encrypt a packet with E2EE.
-  /// @param mediaType The type of media to encrypt
-  /// @param codec The codec of the packet
-  /// @param packet The packet to encrypt
-
+  /// End-to-end encrypt a packet.
   pub fn encrypt<'a>(
     &mut self,
     media_type: MediaType,
@@ -810,17 +784,13 @@ impl DaveSession {
     Ok(Cow::Owned(encrypted_buffer))
   }
 
-  /// Encrypt an opus packet to E2EE.
+  /// End-to-end encrypt an opus packet.
   /// This is the shorthand for `encrypt(MediaType.AUDIO, Codec.OPUS, packet)`
-  /// @param packet The packet to encrypt
-
   pub fn encrypt_opus<'a>(&mut self, packet: &'a [u8]) -> Result<Cow<'a, [u8]>, EncryptError> {
     self.encrypt(MediaType::AUDIO, Codec::OPUS, packet)
   }
 
   /// Get encryption stats.
-  /// @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
-
   pub fn get_encryption_stats(&self, media_type: Option<MediaType>) -> Option<&EncryptionStats> {
     self
       .encryptor
@@ -828,10 +798,7 @@ impl DaveSession {
       .get(&media_type.unwrap_or(MediaType::AUDIO))
   }
 
-  /// Decrypt an E2EE packet.
-  /// @param userId The user ID of the packet
-  /// @param mediaType The type of media to decrypt
-  /// @param packet The packet to decrypt
+  /// Decrypt an end-to-end encrypted packet.
   pub fn decrypt(
     &mut self,
     user_id: u64,
@@ -850,24 +817,20 @@ impl DaveSession {
   }
 
   /// Get decryption stats.
-  /// @param userId The user ID
-  /// @param [mediaType=MediaType.AUDIO] The media type, defaults to `MediaType.AUDIO`
   pub fn get_decryption_stats(
     &self,
     user_id: u64,
-    media_type: Option<MediaType>,
+    media_type: MediaType,
   ) -> Result<Option<&DecryptionStats>, NoDecryptorForUser> {
     let Some(decryptor) = self.decryptors.get(&user_id) else {
       return Err(NoDecryptorForUser);
     };
 
-    Ok(decryptor.stats.get(&media_type.unwrap_or(MediaType::AUDIO)))
+    Ok(decryptor.stats.get(&media_type))
   }
 
-  /// Get the IDs of the users in the current group.
-  /// @returns An array of user IDs, or an empty array if there is no group.
-
-  pub fn get_user_ids(&self) -> Vec<u64> {
+  /// Get the IDs of the users in the current group. None will be returned if there is no group.
+  pub fn get_user_ids(&self) -> Option<Vec<u64>> {
     self
       .group
       .as_ref()
@@ -885,11 +848,9 @@ impl DaveSession {
           })
           .collect()
       })
-      .unwrap_or_default()
   }
 
-  /// Whether this user's key ratchet is in passthrough mode
-  /// @param userId The user ID
+  /// Check whether a user's key ratchet is in passthrough mode
   pub fn can_passthrough(&self, user_id: u64) -> Result<bool, NoDecryptorForUser> {
     let Some(decryptor) = self.decryptors.get(&user_id) else {
       return Err(NoDecryptorForUser);
@@ -898,9 +859,7 @@ impl DaveSession {
     Ok(decryptor.can_passthrough())
   }
 
-  /// Set the passthrough mode of all decryptors
-  /// @param passthroughMode Whether to enable passthrough mode
-  /// @param [transition_expiry=10] The transition expiry (in seconds) to use when disabling passthrough mode, defaults to 10 seconds
+  /// Set whether passthrough mode is enabled on all decryptors. The transition expiry (in seconds) when disabling passthrough mode defaults to 10 seconds
   pub fn set_passthrough_mode(&mut self, passthrough_mode: bool, transition_expiry: Option<u32>) {
     for (_, decryptor) in self.decryptors.iter_mut() {
       decryptor
@@ -913,8 +872,8 @@ impl Debug for DaveSession {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("DaveSession")
       .field("protocol_version", &self.protocol_version)
-      .field("group_id", &self.user_id())
-      .field("group_id", &self.channel_id())
+      .field("user_id", &self.user_id())
+      .field("channel_id", &self.channel_id())
       .field("is_ready", &self.is_ready)
       .field("status", &self.status)
       .finish()

@@ -2,9 +2,7 @@ use crate::errors::DisplayableCodeError;
 
 pub const MAX_GROUP_SIZE: u32 = 8;
 
-/// Generate a displayable code.
-/// @see https://daveprotocol.com/#displayable-codes
-
+/// Generate a [displayable code](https://daveprotocol.com/#displayable-codes).
 pub fn generate_displayable_code(
   data: &[u8],
   desired_length: u32,

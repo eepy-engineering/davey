@@ -6,8 +6,7 @@ const FINGERPRINT_SALT: [u8; 16] = [
   0x24, 0xca, 0xb1, 0x7a, 0x7a, 0xf8, 0xec, 0x2b, 0x82, 0xb4, 0x12, 0xb9, 0x2d, 0xab, 0x19, 0x2e,
 ];
 
-/// Generate a key fingerprint.
-/// @see https://daveprotocol.com/#verification-fingerprint
+/// Generate a [key fingerprint](https://daveprotocol.com/#verification-fingerprint).
 pub fn generate_key_fingerprint(
   version: u16,
   key: &[u8],
@@ -28,8 +27,7 @@ pub fn generate_key_fingerprint(
   Ok(result)
 }
 
-/// Generate a pairwise fingerprint.
-/// @see https://daveprotocol.com/#verification-fingerprint
+/// Generate a [pairwise fingerprint](https://daveprotocol.com/#verification-fingerprint).
 #[allow(dead_code)]
 pub fn generate_pairwise_fingerprint(
   version: u16,
