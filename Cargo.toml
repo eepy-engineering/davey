@@ -1,7 +1,7 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "davey"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["Snazzah <me@snazzah.com>", "Aubrey Taylor <aubrey@hall.ly>"]
 
 [lib]
