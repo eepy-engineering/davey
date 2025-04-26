@@ -7,13 +7,10 @@ version = "0.0.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-env_logger = "0.11.6"
-log = "0.4.26"
-napi = { version = "3.0.0-alpha", features = ["napi6"] }
-napi-derive = "3.0.0-alpha"
-openmls = { version = "0.6.0", features = ["js"] }
-openmls_basic_credential = "0.3.0"
-openmls_rust_crypto = "0.3.0"
+openmls = { git = "https://github.com/openmls/openmls.git", rev = "c4315699f7ce81c0d5a496c776c23794b4a881d1" }
+openmls_basic_credential = { git = "https://github.com/openmls/openmls.git", rev = "c4315699f7ce81c0d5a496c776c23794b4a881d1" }
+openmls_rust_crypto = { git = "https://github.com/openmls/openmls.git", rev = "c4315699f7ce81c0d5a496c776c23794b4a881d1" }
+thiserror = "2.0.12"
 # Crypto utils
 aes-gcm = "0.10.3"
 p256 = { version = "0.13" }
@@ -23,9 +20,6 @@ hmac = { version = "0.12" }
 scrypt = { version = "0.11.0", default-features = false }
 
 [patch.crates-io]
-openmls = { path = "./openmls/openmls" }
-openmls_basic_credential = { path = "./openmls/basic_credential" }
-openmls_rust_crypto = { path = "./openmls/openmls_rust_crypto" }
 aes-gcm = { path = "./aes-gcm" }
 
 [build-dependencies]

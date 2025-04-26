@@ -85,3 +85,6 @@ Cargo.lock
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# Direnv
+/.direnv
