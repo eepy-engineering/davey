@@ -1,8 +1,12 @@
-use log::warn;
+use tracing::warn;
 
-use crate::cryptor::{leb128::*, *};
+use crate::{cryptor::{AES_GCM_127_TRUNCATED_TAG_BYTES, MARKER_BYTES}, errors::FrameTooSmall};
 
-use super::codec_utils::*;
+use super::{
+  codec_utils::*,
+  leb128::{leb128_size, read_leb128, write_leb128},
+  Codec,
+};
 
 #[derive(Debug, Clone)]
 pub struct Range {
@@ -184,6 +188,7 @@ impl InboundFrameProcessor {
     // Check the frame ends with the magic marker
     let magic_marker_buffer = &frame[frame.len() - MARKER_BYTES.len()..];
     if magic_marker_buffer != MARKER_BYTES {
+      tracing::error!("no magic marker");
       return;
     }
 
@@ -328,15 +333,16 @@ impl OutboundFrameProcessor {
     self.unencrypted_ranges.clear();
   }
 
-  pub fn process_frame(&mut self, frame: &[u8], codec: Codec) -> napi::Result<()> {
+  pub fn process_frame(&mut self, frame: &[u8], codec: Codec) {
     self.reset();
 
     // TODO we dont need to but maybe add more codecs later
     self.frame_codec = codec;
     if self.frame_codec != Codec::OPUS {
-      return Err(napi_invalid_arg_error!(
-        "Unsupported codec for frame encryption"
-      ));
+      // return Err(napi_invalid_arg_error!(
+      //   "Unsupported codec for frame encryption"
+      // ));
+      unimplemented!("non-opus codecs are currently unsupported")
     }
 
     self.unencrypted_bytes.reserve(frame.len());
@@ -353,21 +359,19 @@ impl OutboundFrameProcessor {
     }
 
     self.ciphertext_bytes.resize(self.encrypted_bytes.len(), 0);
-    Ok(())
   }
 
-  pub fn reconstruct_frame(&self, frame: &mut [u8]) -> usize {
+  pub fn reconstruct_frame(&self, frame: &mut [u8]) -> Result<usize, FrameTooSmall> {
     if self.unencrypted_bytes.len() + self.ciphertext_bytes.len() > frame.len() {
-      warn!("Frame is too small to contain the encrypted frame");
-      return 0;
+      return Err(FrameTooSmall);
     }
 
-    do_reconstruct(
+    Ok(do_reconstruct(
       &self.unencrypted_ranges,
       &self.unencrypted_bytes,
       &self.ciphertext_bytes,
       frame,
-    )
+    ))
   }
 
   #[allow(dead_code)]

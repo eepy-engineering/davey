@@ -10,12 +10,14 @@
 //! [1]: https://daveprotocol.com/#sender-key-derivation
 
 use hmac::{Hmac, Mac};
-use log::{debug, trace};
 use openmls::prelude::{
   tls_codec::{self, Serialize},
   TlsSerialize, TlsSize, VLBytes,
 };
 use sha2::Sha256;
+use tracing::{debug, trace};
+
+use crate::errors::InvalidLength;
 
 #[derive(Debug, TlsSerialize, TlsSize)]
 pub struct KdfLabel {
@@ -25,7 +27,7 @@ pub struct KdfLabel {
 }
 
 // https://github.com/cisco/mlspp/blob/f7924fc87f77f60a0ea8488615c9fb46c7b386e6/lib/hpke/src/hkdf.cpp#L63
-fn hkdf_expand(prk: &[u8], info: &[u8], size: usize) -> napi::Result<Vec<u8>> {
+fn hkdf_expand(prk: &[u8], info: &[u8], size: usize) -> Result<Vec<u8>, InvalidLength> {
   let mut okm: Vec<u8> = vec![];
   let mut i: u8 = 0;
   let mut ti: Vec<u8> = vec![];
@@ -36,8 +38,7 @@ fn hkdf_expand(prk: &[u8], info: &[u8], size: usize) -> napi::Result<Vec<u8>> {
     block.extend_from_slice(info);
     block.push(i);
 
-    let mut hmac = Hmac::<Sha256>::new_from_slice(prk)
-      .map_err(|_| napi_error!("Invalid length in hkdf_expand"))?;
+    let mut hmac = Hmac::<Sha256>::new_from_slice(prk).map_err(|_| InvalidLength)?;
     hmac.update(&block);
     ti = hmac.finalize().into_bytes().to_vec();
 
@@ -54,7 +55,7 @@ fn expand_with_label(
   label: &str,
   context: &[u8],
   length: usize,
-) -> napi::Result<Vec<u8>> {
+) -> Result<Vec<u8>, InvalidLength> {
   let mls_label = format!("MLS 1.0 {}", label);
   trace!(
     "KDF expand with label \"{}\" with context {:x?}",
@@ -69,7 +70,7 @@ fn expand_with_label(
   trace!("  label: {:x?}", kdf_label);
   let info = kdf_label
     .tls_serialize_detached()
-    .map_err(|_| napi_error!("Failed to deserialize KDF label"))?;
+    .expect("failed to serialize kdf label");
   trace!("  serialized info: {:x?}", info);
   trace!("  secret: {:x?}", secret);
   hkdf_expand(secret, &info, length)
@@ -81,7 +82,7 @@ pub fn derive_tree_secret(
   label: &str,
   generation: u32,
   length: usize,
-) -> napi::Result<Vec<u8>> {
+) -> Result<Vec<u8>, InvalidLength> {
   debug!(
     "Derive tree secret with label \"{}\" in generation {} of length {}",
     label, generation, length

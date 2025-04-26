@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::Instant};
 
-use log::warn;
+use tracing::warn;
 
 use super::{
   aead_cipher::AeadCipher,
@@ -14,7 +14,6 @@ use super::{
   *,
 };
 
-#[napi(object)]
 #[derive(Clone)]
 pub struct EncryptionStats {
   /// Number of encryption successes
@@ -105,12 +104,8 @@ impl Encryptor {
     let mut success = true;
 
     let mut frame_processor = self.get_or_create_frame_processor();
-    let result = frame_processor.process_frame(frame, codec);
-    if let Some(err) = result.err() {
-      self.return_frame_processor(frame_processor);
-      warn!("encryption failed, {err}");
-      return false;
-    }
+
+    frame_processor.process_frame(frame, codec);
 
     let unencrypted_ranges = &frame_processor.unencrypted_ranges;
     let ranges_size = unencrypted_ranges_size(unencrypted_ranges);
@@ -170,12 +165,7 @@ impl Encryptor {
       stats.attempts += 1;
       stats.max_attempts = stats.max_attempts.max(attempt as u32);
 
-      if let Ok(mut tag) = encrypt_result {
-        if tag.len() != AES_GCM_127_TRUNCATED_TAG_BYTES {
-          // "The authentication tag resulting from the AES128-GCM encryption is truncated to 8 bytes."
-          tag.resize(8, 0);
-        }
-
+      if let Ok(tag) = encrypt_result {
         encrypted_frame[frame_size..frame_size + AES_GCM_127_TRUNCATED_TAG_BYTES]
           .copy_from_slice(&tag);
       } else {
@@ -184,7 +174,11 @@ impl Encryptor {
         break;
       }
 
-      let reconstructed_frame_size = frame_processor.reconstruct_frame(encrypted_frame);
+      let Ok(reconstructed_frame_size) = frame_processor.reconstruct_frame(encrypted_frame) else {
+        warn!("encryption failed, frame is too small to contain the encrypted frame");
+        success = false;
+        break;
+      };
 
       let size = leb128_size(truncated_nonce as u64);
 
@@ -275,7 +269,7 @@ impl Encryptor {
         .get(self.current_key_generation);
       match result {
         Ok((key, _)) => {
-          let cipher = AeadCipher::new(key.as_slice());
+          let cipher = AeadCipher::new(key);
           self.cryptor = cipher.ok();
         }
         Err(err) => {

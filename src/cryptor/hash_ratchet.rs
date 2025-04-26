@@ -1,5 +1,7 @@
-use log::{debug, trace};
 use std::collections::HashMap;
+use tracing::{debug, trace};
+
+use crate::errors::{GetKeyError, InvalidLength};
 
 use super::mlspp_crypto::derive_tree_secret;
 
@@ -21,7 +23,7 @@ impl HashRatchet {
   }
 
   // https://www.rfc-editor.org/rfc/rfc9420.html#section-9.1-11.1
-  fn next(&mut self) -> napi::Result<()> {
+  fn next(&mut self) -> Result<(), InvalidLength> {
     let generation = self.next_generation;
     let key = derive_tree_secret(
       &self.next_secret,
@@ -49,35 +51,32 @@ impl HashRatchet {
     Ok(())
   }
 
-  pub fn get(&mut self, generation: u32) -> napi::Result<&(Vec<u8>, Vec<u8>)> {
+  pub fn get(&mut self, generation: u32) -> Result<(&[u8], &[u8]), GetKeyError> {
     if self.cache.contains_key(&generation) {
-      return Ok(self.cache.get(&generation).unwrap());
+      let key = self.cache.get(&generation).unwrap();
+      return Ok((&key.0, &key.1));
     }
 
     if self.next_generation > generation {
-      return Err(napi_error!("Tried to request an expired key"));
+      return Err(GetKeyError::KeyExpired);
     }
 
     debug!(
-      "Getting generation {:?} (from next gen {:?})",
+      "Getting generation {} (from next gen {})",
       generation, self.next_generation
     );
     while self.next_generation <= generation {
-      self.next().map_err(|err| {
-        napi_error!(
-          "Error getting next generation ({:?}): {err}",
-          self.next_generation
-        )
-      })?;
+      self
+        .next()
+        .map_err(|err| GetKeyError::NextGenerationFailed(self.next_generation, err))?;
     }
 
-    Ok(self.cache.get(&generation).unwrap())
+    let key = self.cache.get(&generation).unwrap();
+    Ok((&key.0, &key.1))
   }
 
   pub fn erase(&mut self, generation: u32) {
-    if self.cache.contains_key(&generation) {
-      self.cache.remove(&generation);
-    }
+    self.cache.remove(&generation);
   }
 }
 
@@ -87,10 +86,6 @@ mod tests {
 
   #[test]
   fn expected_result() {
-    env_logger::Builder::new()
-      .filter_level(log::LevelFilter::Trace)
-      .init();
-
     let mut ratchet = HashRatchet::new(vec![
       206, 221, 97, 177, 184, 161, 202, 105, 4, 101, 84, 40, 44, 247, 11, 123,
     ]);

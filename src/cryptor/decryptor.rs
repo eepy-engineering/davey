@@ -5,14 +5,15 @@ use std::{
   time::{Duration, Instant},
 };
 
-use log::{trace, warn};
+use tracing::{trace, warn};
+
+use crate::errors::DecryptorDecryptError;
 
 use super::{
   cryptor_manager::CipherManager, frame_processors::InboundFrameProcessor,
   hash_ratchet::HashRatchet, *,
 };
 
-#[napi(object)]
 #[derive(Clone)]
 pub struct DecryptionStats {
   /// Number of decryption successes
@@ -70,15 +71,10 @@ impl Decryptor {
 
   pub fn decrypt(
     &mut self,
-    media_type: &MediaType,
+    media_type: MediaType,
     encrypted_frame: &[u8],
     frame: &mut [u8],
-  ) -> usize {
-    if *media_type != MediaType::AUDIO && *media_type != MediaType::VIDEO {
-      warn!("decryption failed, invalid media type {:?}", media_type);
-      return 0;
-    }
-
+  ) -> Result<usize, DecryptorDecryptError> {
     let start = Instant::now();
 
     // Skip decrypting for silence frames
@@ -87,7 +83,7 @@ impl Decryptor {
       && encrypted_frame.to_vec() == OPUS_SILENCE_PACKET.to_vec()
     {
       frame[..OPUS_SILENCE_PACKET.len()].clone_from_slice(&OPUS_SILENCE_PACKET);
-      return OPUS_SILENCE_PACKET.len();
+      return Ok(OPUS_SILENCE_PACKET.len());
     }
 
     // Remove any expired cryptor manager
@@ -102,52 +98,46 @@ impl Decryptor {
     // If the frame is not encrypted and we can pass it through, do it
     if !local_frame.encrypted && self.can_passthrough() {
       frame[..encrypted_frame.len()].clone_from_slice(encrypted_frame);
-      let stats = self.stats.get_mut(media_type).unwrap();
+      let stats = self.stats.get_mut(&media_type).unwrap();
       stats.passthroughs += 1;
       self.return_frame_processor(local_frame);
-      return encrypted_frame.len();
+      return Ok(encrypted_frame.len());
     }
 
-    let stats = self.stats.get_mut(media_type).unwrap();
+    let stats = self.stats.get_mut(&media_type).unwrap();
     // If the frame is not encrypted, and we can't pass it through, fail
     if !local_frame.encrypted {
-      warn!("decryption failed, frame is not encrypted and passthrough is disabled");
       stats.failures += 1;
       self.return_frame_processor(local_frame);
-      return 0;
+      return Err(DecryptorDecryptError::UnencryptedWhenPassthroughDisabled);
     }
 
-    let mut success = false;
-
-    for cryptor_manager in self.cryptor_managers.iter_mut() {
-      success = Decryptor::decrypt_impl(cryptor_manager, &mut local_frame);
+    let success = self.cryptor_managers.iter_mut().any(|cryptor_manager| {
       stats.attempts += 1;
-      if success {
-        break;
-      }
-    }
 
-    let mut bytes_written: usize = 0;
-    if success {
+      Self::decrypt_impl(cryptor_manager, &mut local_frame)
+    });
+
+    let result = if success {
       stats.successes += 1;
-      bytes_written = local_frame.reconstruct_frame(frame);
+      Ok(local_frame.reconstruct_frame(frame))
     } else {
       stats.failures += 1;
-      warn!(
-        "decryption failed, no valid cryptor found ({media_type:?}, encrypted size: {:?}, plaintext size: {:?}, num of managers: {:?})",
-        encrypted_frame.len(),
-        frame.len(),
-        self.cryptor_managers.len()
-      );
-    }
+      Err(DecryptorDecryptError::NoValidCryptorFound {
+        media_type,
+        encrypted_size: encrypted_frame.len(),
+        plaintext_size: frame.len(),
+        manager_count: self.cryptor_managers.len(),
+      })
+    };
 
-    let stats = self.stats.get_mut(media_type).unwrap();
+    let stats = self.stats.get_mut(&media_type).unwrap();
     stats.duration += start.elapsed().as_micros() as u32;
 
     // FIXME this technically should return when local_frame drops, but thats gonna be a bit annoying here
     self.return_frame_processor(local_frame);
 
-    bytes_written
+    result
   }
 
   fn decrypt_impl(
@@ -183,16 +173,13 @@ impl Decryptor {
       .plaintext
       .copy_from_slice(&encrypted_frame.ciphertext);
 
-    let success = cipher
-      .as_mut()
-      .unwrap()
-      .decrypt(
-        &mut encrypted_frame.plaintext,
-        &nonce_buffer,
-        &encrypted_frame.authenticated,
-        &encrypted_frame.tag,
-      )
-      .is_ok();
+    let result = cipher.as_mut().unwrap().decrypt(
+      &mut encrypted_frame.plaintext,
+      &nonce_buffer,
+      &encrypted_frame.authenticated,
+      &encrypted_frame.tag,
+    );
+    let success = result.is_ok();
 
     if success {
       cipher_manager.report_cipher_success(generation, encrypted_frame.truncated_nonce);
@@ -231,7 +218,7 @@ impl Decryptor {
   }
 
   pub fn get_max_plaintext_byte_size(
-    _media_type: &MediaType,
+    _media_type: MediaType,
     encrypted_frame_size: usize,
   ) -> usize {
     encrypted_frame_size
