@@ -217,10 +217,7 @@ impl Decryptor {
       || self.allow_passthrough_until.unwrap() > self.clock.elapsed()
   }
 
-  pub fn get_max_plaintext_byte_size(
-    _media_type: MediaType,
-    encrypted_frame_size: usize,
-  ) -> usize {
+  pub fn get_max_plaintext_byte_size(_media_type: MediaType, encrypted_frame_size: usize) -> usize {
     encrypted_frame_size
   }
 

@@ -1,4 +1,4 @@
-use scrypt::{scrypt, Params};
+use scrypt::{Params, scrypt};
 
 use crate::errors::{GenerateKeyFingerprintError, GeneratePairwiseFingerprintError};
 
@@ -44,7 +44,9 @@ pub fn generate_pairwise_fingerprint(
   pairwise_fingerprints_internal(fingerprints)
 }
 
-pub fn pairwise_fingerprints_internal(mut fingerprints: [Vec<u8>; 2]) -> Result<Vec<u8>, GeneratePairwiseFingerprintError> {
+pub fn pairwise_fingerprints_internal(
+  mut fingerprints: [Vec<u8>; 2],
+) -> Result<Vec<u8>, GeneratePairwiseFingerprintError> {
   // Similar to compareArrays in libdave/js
   fingerprints.sort_by(|a, b| {
     for i in 0..std::cmp::min(a.len(), b.len()) {

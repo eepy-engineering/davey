@@ -7,7 +7,7 @@ use super::{
   codec_utils::validate_encrypted_frame,
   cryptor_manager::compute_wrapped_generation,
   frame_processors::{
-    serialize_unencrypted_ranges, unencrypted_ranges_size, OutboundFrameProcessor,
+    OutboundFrameProcessor, serialize_unencrypted_ranges, unencrypted_ranges_size,
   },
   hash_ratchet::HashRatchet,
   leb128::*,

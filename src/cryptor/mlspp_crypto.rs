@@ -11,8 +11,8 @@
 
 use hmac::{Hmac, Mac};
 use openmls::prelude::{
-  tls_codec::{self, Serialize},
   TlsSerialize, TlsSize, VLBytes,
+  tls_codec::{self, Serialize},
 };
 use sha2::Sha256;
 use tracing::{debug, trace};
@@ -59,8 +59,7 @@ fn expand_with_label(
   let mls_label = format!("MLS 1.0 {}", label);
   trace!(
     "KDF expand with label \"{}\" with context {:x?}",
-    &mls_label,
-    context
+    &mls_label, context
   );
   let kdf_label = KdfLabel {
     length: length as u16,

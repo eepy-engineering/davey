@@ -1,7 +1,7 @@
-use aes_gcm::{aead::AeadMutInPlace, aes::Aes128, AesGcm, KeyInit};
+use aes_gcm::{AesGcm, KeyInit, aead::AeadMutInPlace, aes::Aes128};
 use sha2::digest::{
-  consts::{U12, U8},
   InvalidLength,
+  consts::{U8, U12},
 };
 
 type Aes128GcmModified = AesGcm<Aes128, U12, U8>;

@@ -1,4 +1,4 @@
-use super::{frame_processors::OutboundFrameProcessor, Codec};
+use super::{Codec, frame_processors::OutboundFrameProcessor};
 
 // const NALU_SHORT_START_SEQUENCE_SIZE: u8 = 3;
 

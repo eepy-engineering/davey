@@ -1,11 +1,14 @@
 use tracing::warn;
 
-use crate::{cryptor::{AES_GCM_127_TRUNCATED_TAG_BYTES, MARKER_BYTES}, errors::FrameTooSmall};
+use crate::{
+  cryptor::{AES_GCM_127_TRUNCATED_TAG_BYTES, MARKER_BYTES},
+  errors::FrameTooSmall,
+};
 
 use super::{
+  Codec,
   codec_utils::*,
   leb128::{leb128_size, read_leb128, write_leb128},
-  Codec,
 };
 
 #[derive(Debug, Clone)]

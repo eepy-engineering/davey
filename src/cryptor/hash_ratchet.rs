@@ -93,7 +93,9 @@ mod tests {
     let (key, nonce) = ratchet.get(0).expect("Expected success from ratchet");
     assert_eq!(
       *key,
-      vec![117, 48, 249, 169, 148, 94, 45, 46, 6, 208, 101, 31, 123, 42, 134, 75]
+      vec![
+        117, 48, 249, 169, 148, 94, 45, 46, 6, 208, 101, 31, 123, 42, 134, 75
+      ]
     );
     assert_eq!(
       *nonce,

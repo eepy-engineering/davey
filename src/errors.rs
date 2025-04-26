@@ -1,11 +1,17 @@
 use std::{array::TryFromSliceError, num::NonZeroU16};
 
-use openmls::{framing::errors::ProtocolMessageError, group::{CommitToPendingProposalsError, ExportSecretError, MergeCommitError, MergePendingCommitError, NewGroupError, ProcessMessageError, RemoveProposalError, WelcomeError}, prelude::{tls_codec, CryptoError, InvalidExtensionError, KeyPackageNewError}};
+use openmls::{
+  framing::errors::ProtocolMessageError,
+  group::{
+    CommitToPendingProposalsError, ExportSecretError, MergeCommitError, MergePendingCommitError,
+    NewGroupError, ProcessMessageError, RemoveProposalError, WelcomeError,
+  },
+  prelude::{CryptoError, InvalidExtensionError, KeyPackageNewError, tls_codec},
+};
 use openmls_rust_crypto::MemoryStorageError;
 use thiserror::Error;
 
-use crate::{cryptor::MediaType, session::DAVE_PROTOCOL_VERSION, displayable_code::MAX_GROUP_SIZE};
-
+use crate::{cryptor::MediaType, displayable_code::MAX_GROUP_SIZE, session::DAVE_PROTOCOL_VERSION};
 
 #[derive(Error, Debug)]
 pub enum DisplayableCodeError {
@@ -34,7 +40,6 @@ pub enum GeneratePairwiseFingerprintError {
   #[error("failed to hash fingerprints: {0}")]
   HashingFailed(scrypt::errors::InvalidOutputLen),
 }
-
 
 #[derive(Error, Debug)]
 #[error(
@@ -187,7 +192,7 @@ pub enum GetPairwiseFingerprintError {
   #[error("error while generating pairwise fingerprint: {0}")]
   GeneratingPairwiseFingerprint(#[from] GeneratePairwiseFingerprintError),
   #[error("error while generating key fingerprint: {0}")]
-  GeneratingKeyFingerprint(#[from] GenerateKeyFingerprintError)
+  GeneratingKeyFingerprint(#[from] GenerateKeyFingerprintError),
 }
 
 #[derive(Error, Debug)]
@@ -224,7 +229,9 @@ pub struct NoDecryptorForUser;
 pub enum DecryptorDecryptError {
   #[error("provided frame was unencrypted when passthrough mode was disabled")]
   UnencryptedWhenPassthroughDisabled,
-  #[error("no valid cryptor manager could be found for {media_type:?}, encrypted size: {encrypted_size}, plaintext size: {plaintext_size}, num of managers: {manager_count})")]
+  #[error(
+    "no valid cryptor manager could be found for {media_type:?}, encrypted size: {encrypted_size}, plaintext size: {plaintext_size}, num of managers: {manager_count})"
+  )]
   NoValidCryptorFound {
     media_type: MediaType,
     encrypted_size: usize,

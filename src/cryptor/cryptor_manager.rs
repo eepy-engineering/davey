@@ -1,11 +1,11 @@
 #![allow(clippy::map_entry)]
-use tracing::{debug, trace, warn};
 use std::{
   cmp::max,
   collections::{HashMap, VecDeque},
   sync::Arc,
   time::{Duration, Instant},
 };
+use tracing::{debug, trace, warn};
 
 use crate::errors::ExpiringCipherError;
 
@@ -71,7 +71,8 @@ impl CipherManager {
     }
 
     let wrapped_big_nonce = compute_wrapped_big_nonce(generation, nonce);
-    wrapped_big_nonce > self.newest_processed_nonce.unwrap() || self.missing_nonces.contains(&wrapped_big_nonce)
+    wrapped_big_nonce > self.newest_processed_nonce.unwrap()
+      || self.missing_nonces.contains(&wrapped_big_nonce)
   }
 
   pub fn get_cipher(&mut self, generation: u32) -> Option<&mut AeadCipher> {
@@ -80,8 +81,7 @@ impl CipherManager {
     if generation < self.oldest_generation {
       trace!(
         "Received frame with old generation: {:?}, oldest generation: {:?}",
-        generation,
-        self.oldest_generation
+        generation, self.oldest_generation
       );
       return None;
     }
@@ -89,8 +89,7 @@ impl CipherManager {
     if generation > self.newest_generation + MAX_GENERATION_GAP {
       trace!(
         "Received frame with future generation: {:?}, newest generation: {:?}",
-        generation,
-        self.newest_generation
+        generation, self.newest_generation
       );
       return None;
     }
@@ -113,10 +112,18 @@ impl CipherManager {
         warn!("Error while making expiring cipher: {err}");
         return None;
       }
-      self.cryptor_generations.insert(generation, ec_result.unwrap());
+      self
+        .cryptor_generations
+        .insert(generation, ec_result.unwrap());
     }
 
-    Some(&mut self.cryptor_generations.get_mut(&generation).unwrap().cipher)
+    Some(
+      &mut self
+        .cryptor_generations
+        .get_mut(&generation)
+        .unwrap()
+        .cipher,
+    )
   }
 
   pub fn report_cipher_success(&mut self, generation: u32, nonce: u32) {
@@ -134,19 +141,28 @@ impl CipherManager {
         }
       };
 
-      while !self.missing_nonces.is_empty() && self.missing_nonces.front().unwrap() < &oldest_missing_nonce {
+      while !self.missing_nonces.is_empty()
+        && self.missing_nonces.front().unwrap() < &oldest_missing_nonce
+      {
         self.missing_nonces.pop_front();
       }
 
       // If we're missing a lot, we don't want to add everything since newestProcessedNonce_
-      let missing_range_start = max(oldest_missing_nonce, self.newest_processed_nonce.unwrap() + 1);
+      let missing_range_start = max(
+        oldest_missing_nonce,
+        self.newest_processed_nonce.unwrap() + 1,
+      );
       for i in missing_range_start..wrapped_big_nonce {
         self.missing_nonces.push_back(i);
       }
 
       // Update the newest processed nonce
       self.newest_processed_nonce = Some(wrapped_big_nonce);
-    } else if let Some(index) = self.missing_nonces.iter().position(|&x| x == wrapped_big_nonce) {
+    } else if let Some(index) = self
+      .missing_nonces
+      .iter()
+      .position(|&x| x == wrapped_big_nonce)
+    {
       self.missing_nonces.remove(index);
     }
 
@@ -171,7 +187,10 @@ impl CipherManager {
     compute_wrapped_generation(self.oldest_generation, generation)
   }
 
-  fn make_expiring_cipher(&mut self, generation: u32) -> Result<ExpiringCipher, ExpiringCipherError> {
+  fn make_expiring_cipher(
+    &mut self,
+    generation: u32,
+  ) -> Result<ExpiringCipher, ExpiringCipherError> {
     // Get the new key from the ratchet
     let (key, _nonce) = self.key_ratchet.get(generation)?;
 
@@ -204,9 +223,14 @@ impl CipherManager {
     });
 
     while self.oldest_generation < self.newest_generation
-      && !self.cryptor_generations.contains_key(&self.oldest_generation)
+      && !self
+        .cryptor_generations
+        .contains_key(&self.oldest_generation)
     {
-      trace!("Deleting key for old generation: {:?}", self.oldest_generation);
+      trace!(
+        "Deleting key for old generation: {:?}",
+        self.oldest_generation
+      );
       self.key_ratchet.erase(self.oldest_generation);
       self.oldest_generation += 1;
     }

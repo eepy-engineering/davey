@@ -9,14 +9,17 @@ use openmls_rust_crypto::OpenMlsRustCrypto;
 use std::{borrow::Cow, collections::HashMap, fmt::Debug, num::NonZeroU16};
 use tracing::{debug, trace, warn};
 
-use crate::{errors::*, generate_key_fingerprint, pairwise_fingerprints_internal};
+use crate::{
+  errors::*, generate_key_fingerprint, pairwise_fingerprints_internal,
+  signing_key_pair::SigningKeyPair,
+};
 
 use super::{
   cryptor::{
+    AES_GCM_128_KEY_BYTES, Codec, MediaType, OPUS_SILENCE_PACKET,
     decryptor::{DecryptionStats, Decryptor},
     encryptor::{EncryptionStats, Encryptor},
     hash_ratchet::HashRatchet,
-    Codec, MediaType, AES_GCM_128_KEY_BYTES, OPUS_SILENCE_PACKET,
   },
   generate_displayable_code_internal,
 };
@@ -77,11 +80,6 @@ pub struct CommitWelcome {
   pub welcome: Option<Vec<u8>>,
 }
 
-pub struct SigningKeyPair<'a> {
-  private: &'a [u8],
-  public: &'a [u8],
-}
-
 pub struct DaveSession {
   protocol_version: NonZeroU16,
   provider: OpenMlsRustCrypto,
@@ -106,7 +104,7 @@ impl DaveSession {
     protocol_version: NonZeroU16,
     user_id: u64,
     channel_id: u64,
-    key_pair: Option<SigningKeyPair>,
+    key_pair: Option<&SigningKeyPair>,
   ) -> Result<Self, InitError> {
     let (ciphersuite, group_id, signer, credential_with_key) =
       Self::common_init(protocol_version, user_id, channel_id, key_pair)?;
@@ -134,7 +132,7 @@ impl DaveSession {
     protocol_version: NonZeroU16,
     user_id: u64,
     channel_id: u64,
-    key_pair: Option<SigningKeyPair>,
+    key_pair: Option<&SigningKeyPair>,
   ) -> Result<(), ReinitError> {
     self.reset()?;
 
@@ -162,7 +160,7 @@ impl DaveSession {
     protocol_version: NonZeroU16,
     user_id: u64,
     channel_id: u64,
-    key_pair: Option<SigningKeyPair>,
+    key_pair: Option<&SigningKeyPair>,
   ) -> Result<(Ciphersuite, GroupId, SignatureKeyPair, CredentialWithKey), InitError> {
     let ciphersuite = dave_protocol_version_to_ciphersuite(protocol_version)?;
     let credential = BasicCredential::new(user_id.to_be_bytes().into());
@@ -170,8 +168,8 @@ impl DaveSession {
     let signer = if let Some(key_pair) = key_pair {
       SignatureKeyPair::from_raw(
         ciphersuite.signature_algorithm(),
-        key_pair.private.into(),
-        key_pair.public.into(),
+        key_pair.private.clone(),
+        key_pair.public.clone(),
       )
     } else {
       SignatureKeyPair::new(ciphersuite.signature_algorithm())?
@@ -831,23 +829,20 @@ impl DaveSession {
 
   /// Get the IDs of the users in the current group. None will be returned if there is no group.
   pub fn get_user_ids(&self) -> Option<Vec<u64>> {
-    self
-      .group
-      .as_ref()
-      .map(|group| {
-        group
-          .members()
-          .map(|member| {
-            u64::from_be_bytes(
-              member
-                .credential
-                .serialized_content()
-                .try_into()
-                .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0]),
-            )
-          })
-          .collect()
-      })
+    self.group.as_ref().map(|group| {
+      group
+        .members()
+        .map(|member| {
+          u64::from_be_bytes(
+            member
+              .credential
+              .serialized_content()
+              .try_into()
+              .unwrap_or([0, 0, 0, 0, 0, 0, 0, 0]),
+          )
+        })
+        .collect()
+    })
   }
 
   /// Check whether a user's key ratchet is in passthrough mode
