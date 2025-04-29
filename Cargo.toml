@@ -4,9 +4,6 @@ name = "davey"
 version = "0.1.0"
 authors = ["Snazzah <me@snazzah.com>", "Aubrey Taylor <aubrey@hall.ly>"]
 
-[lib]
-crate-type = ["cdylib"]
-
 [dependencies]
 openmls = { git = "https://github.com/openmls/openmls.git", rev = "c4315699f7ce81c0d5a496c776c23794b4a881d1" }
 openmls_basic_credential = { git = "https://github.com/openmls/openmls.git", rev = "c4315699f7ce81c0d5a496c776c23794b4a881d1" }
@@ -25,10 +22,3 @@ num-traits = "0.2.19"
 
 [patch.crates-io]
 aes-gcm = { path = "./aes-gcm" }
-
-[build-dependencies]
-napi-build = "2.0.1"
-
-[profile.release]
-lto = true
-strip = "symbols"
